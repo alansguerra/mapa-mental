@@ -1,1 +1,662 @@
-em construção
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Mapa mental</title>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<style>
+:root{
+  --paper:#FBFAF7; --ink:#1F2421; --ink-2:#5B625D; --line:#D9D6CE; --dot:#DCD8CE;
+  --panel:#FFFFFF; --sel:#2B6CB0; --shadow:0 6px 24px rgba(31,36,33,.14);
+  --c1:#2E7D5B; --c2:#C8642A; --c3:#3B6FB6; --c4:#A63D6B; --c5:#8A6D1C; --c6:#5B5B8F; --c7:#1F8C8C; --c8:#6B6B6B;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;height:100%;overflow:hidden;background:var(--paper);color:var(--ink);
+  font:15px/1.4 -apple-system,"Segoe UI",Roboto,Inter,system-ui,sans-serif;touch-action:none;overscroll-behavior:none}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
+button:focus-visible,input:focus-visible,textarea:focus-visible{outline:2px solid var(--sel);outline-offset:2px}
+
+/* Top bar */
+#top{position:fixed;top:0;left:0;right:0;height:52px;display:flex;align-items:center;gap:6px;padding:0 10px;
+  padding-top:env(safe-area-inset-top);background:rgba(251,250,247,.92);backdrop-filter:blur(8px);border-bottom:1px solid var(--line);z-index:20}
+#title{flex:1;min-width:0;font-weight:600;font-size:16px;border:0;background:transparent;padding:6px 8px;border-radius:8px}
+#title:hover,#title:focus{background:#fff}
+.tb{height:36px;min-width:36px;padding:0 10px;border-radius:9px;display:inline-flex;align-items:center;justify-content:center;gap:6px;font-size:14px;color:var(--ink-2)}
+.tb:hover{background:#EFEDE7;color:var(--ink)}
+.tb svg{width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+#menu{position:fixed;top:56px;right:10px;background:var(--panel);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow);
+  padding:6px;display:none;flex-direction:column;min-width:220px;z-index:30}
+#menu.open{display:flex}
+#menu button{text-align:left;padding:10px 12px;border-radius:8px;display:flex;gap:10px;align-items:center;font-size:14px}
+#menu button:hover{background:#F2F0EA}
+#menu hr{border:0;border-top:1px solid var(--line);margin:6px 0}
+
+/* Canvas */
+#stage{position:absolute;inset:0;overflow:hidden;cursor:grab;
+  background-image:radial-gradient(var(--dot) 1.1px,transparent 1.2px);background-size:22px 22px}
+#stage.panning{cursor:grabbing}
+#world{position:absolute;left:0;top:0;transform-origin:0 0;will-change:transform}
+#links{position:absolute;left:0;top:0;overflow:visible;pointer-events:none}
+#links path{fill:none;stroke-width:2.4;stroke-linecap:round}
+.node{position:absolute;transform:translate(-50%,-50%);padding:8px 14px;border-radius:12px;background:#fff;border:2px solid transparent;
+  box-shadow:0 1px 3px rgba(31,36,33,.10),0 0 0 1px rgba(31,36,33,.06);width:max-content;max-width:260px;min-width:44px;
+  user-select:none;-webkit-user-select:none;cursor:pointer;display:flex;align-items:center;gap:6px;white-space:pre-wrap;word-break:break-word;line-height:1.3}
+.node.root{font-size:18px;font-weight:600;padding:12px 20px;border-radius:16px;color:#fff}
+.node.sel{border-color:var(--sel);box-shadow:0 0 0 4px rgba(43,108,176,.18)}
+.node.drop{outline:3px dashed var(--sel);outline-offset:3px}
+.node.dragging{opacity:.75;z-index:5}
+.node .ic{font-size:1.1em;line-height:1}
+.node .txt{flex:1;min-width:0}
+.node .meta{display:flex;gap:4px;font-size:11px;color:var(--ink-2);margin-left:2px;align-self:flex-start;margin-top:2px}
+.node.root .meta{color:rgba(255,255,255,.85)}
+.node textarea{font:inherit;border:0;outline:0;background:transparent;resize:none;width:100%;padding:0;margin:0;color:inherit;line-height:1.3;overflow:hidden}
+.tog{position:absolute;width:22px;height:22px;border-radius:50%;background:#fff;border:2px solid var(--line);
+  transform:translate(-50%,-50%);font-size:12px;font-weight:600;color:var(--ink-2);display:flex;align-items:center;justify-content:center;line-height:1;cursor:pointer;z-index:2}
+.tog:hover{border-color:var(--ink-2);color:var(--ink)}
+
+/* Bottom action bar */
+#actions{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(14px + env(safe-area-inset-bottom));
+  display:flex;gap:4px;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:6px;box-shadow:var(--shadow);z-index:20}
+#actions .tb{height:40px;min-width:40px}
+#actions .tb span{display:none}
+@media(min-width:700px){#actions .tb span{display:inline}}
+#actions .tb:disabled{opacity:.35;cursor:default}
+#actions .tb:disabled:hover{background:none}
+#zoom{position:fixed;right:10px;bottom:calc(14px + env(safe-area-inset-bottom));display:flex;flex-direction:column;gap:2px;
+  background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:4px;box-shadow:var(--shadow);z-index:20}
+@media(max-width:699px){#zoom{display:none}}
+
+/* Side panel */
+#panel{position:fixed;top:0;right:0;bottom:0;width:340px;max-width:100%;background:var(--panel);border-left:1px solid var(--line);
+  box-shadow:var(--shadow);z-index:25;display:flex;flex-direction:column;transform:translateX(105%);transition:transform .22s ease}
+#panel.open{transform:none}
+@media(max-width:699px){#panel{top:auto;left:0;width:100%;height:78%;border-left:0;border-top:1px solid var(--line);border-radius:18px 18px 0 0;
+  transform:translateY(105%)}#panel.open{transform:none}}
+@media(prefers-reduced-motion:reduce){#panel{transition:none}}
+#panel header{display:flex;align-items:center;gap:8px;padding:12px 14px;border-bottom:1px solid var(--line)}
+#panel header h2{margin:0;font-size:15px;font-weight:600;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#panel .body{flex:1;overflow:auto;padding:14px;display:flex;flex-direction:column;gap:18px;touch-action:pan-y}
+#panel section h3{margin:0 0 8px;font-size:13px;font-weight:600;color:var(--ink-2)}
+.swatches{display:flex;gap:8px;flex-wrap:wrap}
+.sw{width:30px;height:30px;border-radius:50%;border:2px solid transparent;cursor:pointer}
+.sw.on{border-color:var(--ink);box-shadow:inset 0 0 0 2px #fff}
+.sw.none{background:#fff;border-color:var(--line);position:relative}
+.sw.none::after{content:"";position:absolute;left:4px;right:4px;top:50%;border-top:2px solid var(--line);transform:rotate(-45deg)}
+.icons{display:grid;grid-template-columns:repeat(8,1fr);gap:4px}
+.icons button{font-size:20px;height:36px;border-radius:8px}
+.icons button:hover,.icons button.on{background:#EFEDE7}
+#notes{width:100%;min-height:90px;border:1px solid var(--line);border-radius:10px;padding:10px;font:inherit;resize:vertical;background:var(--paper)}
+.att{display:flex;align-items:center;gap:8px;padding:8px;border:1px solid var(--line);border-radius:10px;margin-bottom:6px}
+.att .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:14px}
+.att .sz{font-size:12px;color:var(--ink-2)}
+.att a{color:var(--sel);text-decoration:none}
+.att img{width:36px;height:36px;object-fit:cover;border-radius:6px}
+.att .rm{color:var(--ink-2);font-size:16px;padding:4px 6px;border-radius:6px}
+.att .rm:hover{background:#F2F0EA;color:#B33}
+.btnrow{display:flex;gap:8px;flex-wrap:wrap}
+.btn{padding:8px 12px;border:1px solid var(--line);border-radius:10px;font-size:14px;display:inline-flex;gap:6px;align-items:center;background:#fff}
+.btn:hover{background:#F2F0EA}
+.btn.danger{color:#B33}
+.btn.danger:hover{background:#FBEDED}
+#linkform{display:flex;gap:6px;margin-top:8px}
+#linkform input{flex:1;min-width:0;border:1px solid var(--line);border-radius:10px;padding:8px 10px;font:inherit}
+
+#toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(80px + env(safe-area-inset-bottom));background:var(--ink);color:#fff;
+  padding:10px 16px;border-radius:10px;font-size:14px;z-index:40;opacity:0;transition:opacity .2s;pointer-events:none}
+#toast.show{opacity:1}
+#hint{position:fixed;left:14px;bottom:calc(80px + env(safe-area-inset-bottom));font-size:12px;color:var(--ink-2);z-index:10;pointer-events:none;max-width:260px}
+@media(max-width:699px){#hint{display:none}}
+#viewer{position:fixed;inset:0;background:rgba(31,36,33,.9);z-index:50;display:none;align-items:center;justify-content:center;padding:20px}
+#viewer.open{display:flex}
+/* Views */
+body.v-login #top,body.v-login #stage,body.v-login #actions,body.v-login #zoom,body.v-login #hint,
+body.v-home #stage,body.v-home #actions,body.v-home #zoom,body.v-home #hint,body.v-home #btnUndo,body.v-home #btnFit,body.v-home #title,body.v-home #btnMenu,body.v-home #menu,
+body.v-editor #home,body.v-editor #login,body.v-login #home,body.v-home #login{display:none!important}
+body.v-editor #btnBack{display:inline-flex}
+#btnBack{display:none}
+#login{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;padding:24px;text-align:center}
+#login .box{max-width:360px}
+#login h1{font-size:26px;margin:0 0 8px;font-weight:600}
+#login p{color:var(--ink-2);margin:0 0 22px}
+.gbtn{display:inline-flex;align-items:center;gap:10px;padding:12px 20px;border:1px solid var(--line);border-radius:12px;background:#fff;font-size:15px;font-weight:500;box-shadow:0 1px 3px rgba(31,36,33,.08)}
+.gbtn:hover{background:#F6F5F1}
+#login .err{color:#B33;font-size:13px;margin-top:14px;min-height:18px}
+#home{position:fixed;inset:0;top:52px;padding:18px 16px calc(24px + env(safe-area-inset-bottom));overflow:auto;touch-action:pan-y}
+#home .wrap{max-width:640px;margin:0 auto}
+#home .head{display:flex;align-items:center;gap:10px;margin-bottom:14px}
+#home h1{font-size:20px;margin:0;flex:1;font-weight:600}
+.maprow{display:flex;align-items:center;gap:12px;padding:14px 12px;border:1px solid var(--line);border-radius:12px;background:#fff;margin-bottom:8px;cursor:pointer}
+.maprow:hover{background:#F6F5F1}
+.maprow .nm{flex:1;min-width:0;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.maprow .dt{font-size:12px;color:var(--ink-2);white-space:nowrap}
+.maprow .more{color:var(--ink-2);font-size:18px;padding:4px 8px;border-radius:6px}
+.maprow .more:hover{background:#EFEDE7;color:var(--ink)}
+#home .empty{color:var(--ink-2);padding:30px 0;text-align:center}
+#status{font-size:12px;color:var(--ink-2);white-space:nowrap;display:flex;align-items:center;gap:6px}
+#status button{font-size:12px;padding:4px 8px;border:1px solid var(--line);border-radius:8px;background:#fff}
+#status.err{color:#B33}
+.att .kind{width:36px;height:36px;border-radius:6px;background:#F2F0EA;display:flex;align-items:center;justify-content:center;font-size:18px}
+
+#viewer img{max-width:100%;max-height:100%;border-radius:8px}
+</style>
+</head>
+<body>
+
+<div id="top">
+  <button class="tb" id="btnBack" title="Voltar aos mapas"><svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg></button>
+  <button class="tb" id="btnMenu" title="Menu"><svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
+  <input id="title" value="Novo mapa" spellcheck="false" aria-label="Nome do mapa">
+  <button class="tb" id="btnUndo" title="Desfazer (Ctrl+Z)"><svg viewBox="0 0 24 24"><path d="M9 14 4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 0 10h-3"/></svg></button>
+  <button class="tb" id="btnFit" title="Enquadrar"><svg viewBox="0 0 24 24"><path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5"/></svg></button>
+  <span id="status"></span>
+</div>
+
+<div id="menu">
+  <button data-act="rename">✏️ Renomear mapa</button>
+  <button data-act="export">💾 Baixar cópia (.json)</button>
+  <button data-act="png">🖼️ Exportar imagem (PNG)</button>
+  <hr>
+  <button data-act="expandAll">Expandir tudo</button>
+  <button data-act="collapseAll">Recolher tudo</button>
+  <button data-act="resetPos">Desfazer arrastos (layout automático)</button>
+  <hr>
+  <button data-act="help">Atalhos e ajuda</button>
+  <hr>
+  <button data-act="logout">Sair da conta Google</button>
+</div>
+
+<div id="login"><div class="box"><h1>Mapa mental</h1><p>Seus mapas ficam na pasta "Mapas mentais" do seu Google Drive e abrem em qualquer aparelho.</p><button class="gbtn" id="btnLogin"><svg width="18" height="18" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9.1 3.5l6.8-6.8C35.8 2.4 30.3 0 24 0 14.6 0 6.5 5.4 2.6 13.3l7.9 6.1C12.4 13.6 17.7 9.5 24 9.5z"/><path fill="#4285F4" d="M46.5 24.5c0-1.6-.1-3.1-.4-4.5H24v9h12.7c-.6 3-2.3 5.5-4.8 7.2l7.7 6c4.5-4.2 6.9-10.3 6.9-17.7z"/><path fill="#FBBC05" d="M10.5 28.6c-.5-1.5-.8-3-.8-4.6s.3-3.1.8-4.6l-7.9-6.1C.9 16.5 0 20.1 0 24s.9 7.5 2.6 10.7l7.9-6.1z"/><path fill="#34A853" d="M24 48c6.3 0 11.7-2.1 15.6-5.7l-7.7-6c-2.1 1.4-4.8 2.3-7.9 2.3-6.3 0-11.6-4.1-13.5-9.9l-7.9 6.1C6.5 42.6 14.6 48 24 48z"/></svg>Entrar com Google</button><div class="err" id="loginErr"></div></div></div>
+
+<div id="home"><div class="wrap"><div class="head"><h1>Meus mapas</h1><button class="btn" id="btnImportHome">📂 Importar .json</button><button class="btn" id="btnNewMap" style="background:var(--ink);color:#fff;border-color:var(--ink)">+ Novo mapa</button></div><div id="mapList"></div><div style="margin-top:24px;text-align:center"><button class="btn" id="btnLogoutHome">Sair da conta Google</button></div></div></div>
+
+<div id="stage">
+  <div id="world">
+    <svg id="links"></svg>
+    <div id="nodes"></div>
+  </div>
+</div>
+
+<div id="hint">Tab: filho · Enter: irmão · Delete: apagar · Duplo clique: editar · Arraste um nó sobre outro para mover o ramo</div>
+
+<div id="actions">
+  <button class="tb" data-act="child" title="Adicionar filho (Tab)"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg><span>Filho</span></button>
+  <button class="tb" data-act="sibling" title="Adicionar irmão (Enter)"><svg viewBox="0 0 24 24"><path d="M6 12h12M14 8l4 4-4 4"/></svg><span>Irmão</span></button>
+  <button class="tb" data-act="edit" title="Editar texto (F2)"><svg viewBox="0 0 24 24"><path d="M4 20h4l10-10-4-4L4 16z"/><path d="M13 7l4 4"/></svg><span>Editar</span></button>
+  <button class="tb" data-act="toggle" title="Recolher / expandir"><svg viewBox="0 0 24 24"><path d="M8 5l8 7-8 7"/></svg><span>Ramo</span></button>
+  <button class="tb" data-act="details" title="Cor, ícone, notas e anexos"><svg viewBox="0 0 24 24"><path d="M21 12.5 12 21.5a5 5 0 0 1-7-7l9-9a3.5 3.5 0 0 1 5 5l-9 9a2 2 0 0 1-3-3l8-8"/></svg><span>Detalhes</span></button>
+  <button class="tb" data-act="delete" title="Apagar (Delete)"><svg viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg><span>Apagar</span></button>
+</div>
+
+<div id="zoom">
+  <button class="tb" data-act="zoomIn" title="Aproximar">+</button>
+  <button class="tb" data-act="zoomOut" title="Afastar">−</button>
+</div>
+
+<aside id="panel" aria-label="Detalhes do nó">
+  <header>
+    <h2 id="pTitle">Nó</h2>
+    <button class="tb" id="pClose" title="Fechar">✕</button>
+  </header>
+  <div class="body">
+    <section><h3>Cor do ramo</h3><div class="swatches" id="swatches"></div></section>
+    <section><h3>Ícone</h3><div class="icons" id="icons"></div></section>
+    <section><h3>Notas</h3><textarea id="notes" placeholder="Anotações livres deste nó"></textarea></section>
+    <section><h3>Anexos</h3>
+      <div id="attList"></div>
+      <div class="btnrow">
+        <button class="btn" id="btnAttFile">📎 Arquivo</button>
+        <button class="btn" id="btnAttLink">🔗 Link</button>
+      </div>
+      <div id="linkform" style="display:none"><input id="linkUrl" placeholder="https://…" inputmode="url"><button class="btn" id="linkOk">Adicionar</button></div>
+    </section>
+    <section><div class="btnrow"><button class="btn danger" id="pDelete">Apagar este nó e o ramo</button></div></section>
+  </div>
+</aside>
+
+<input type="file" id="fileImport" accept=".json,application/json" hidden>
+<input type="file" id="fileAtt" multiple hidden>
+<div id="toast"></div>
+<div id="viewer"><img id="viewerImg" alt=""></div>
+
+<script>
+(() => {
+'use strict';
+const $ = s => document.querySelector(s);
+const COLORS = ['#2E7D5B','#C8642A','#3B6FB6','#A63D6B','#8A6D1C','#5B5B8F','#1F8C8C','#6B6B6B'];
+const ICONS = ['⭐','✅','❗','❓','💡','🔥','📌','🎯','💰','📈','📉','🛒','📦','🚚','🌱','🌿','🔧','💧','🏷️','🧾','📞','✉️','📅','⏰','⚠️','🚫','👍','👎','🧠','🤝','🏠','🐶'];
+const H_GAP = 56, V_GAP = 14;
+const CLIENT_ID = '490302819117-8aujmuabs93a5ujeqoa035bmok4sed80.apps.googleusercontent.com';
+const SCOPE = 'https://www.googleapis.com/auth/drive.file';
+const FOLDER_NAME = 'Mapas mentais';
+
+/* ---------- state ---------- */
+let map = null;            // {id,title,nodes:{id:{...}},root}
+let sel = null;            // selected node id
+let view = {x:0,y:0,k:1};
+let undoStack = [], redoStack = [];
+let editing = null;
+
+const stage = $('#stage'), world = $('#world'), linksSvg = $('#links'), nodesEl = $('#nodes');
+
+const uid = () => Math.random().toString(36).slice(2,9) + Date.now().toString(36).slice(-3);
+const newNode = (text, parent) => ({id:uid(), text, parent, children:[], color:null, icon:null, notes:'', att:[], collapsed:false, dx:0, dy:0, side:null});
+const newMap = (title='Novo mapa') => {
+  const r = newNode('Ideia central', null);
+  return {id:uid(), title, root:r.id, nodes:{[r.id]:r}, view:null};
+};
+const N = id => map.nodes[id];
+const kids = n => n.children.map(N).filter(Boolean);
+const isDesc = (a, b) => { // is b descendant of a (or equal)
+  let n = N(b); while(n){ if(n.id===a) return true; n = n.parent ? N(n.parent) : null; } return false;
+};
+const sideOf = n => { let c = n; while(c.parent && c.parent !== map.root) c = N(c.parent); return c.parent ? (c.side||'R') : 'R'; };
+const colorOf = n => { let c = n; while(c){ if(c.color) return c.color; if(!c.parent) break; c = N(c.parent); }
+  // default: by first-level branch index
+  let t = n; while(t.parent && t.parent !== map.root) t = N(t.parent);
+  if(!t.parent) return '#1F2421';
+  const i = N(map.root).children.indexOf(t.id); return COLORS[i % COLORS.length]; };
+
+/* ---------- undo ---------- */
+function snapshot(){ undoStack.push(JSON.stringify(map)); if(undoStack.length>60) undoStack.shift(); redoStack = []; }
+function undo(){ if(!undoStack.length) return; redoStack.push(JSON.stringify(map)); map = JSON.parse(undoStack.pop()); if(sel && !N(sel)) sel=null; render(); save(); }
+function redo(){ if(!redoStack.length) return; undoStack.push(JSON.stringify(map)); map = JSON.parse(redoStack.pop()); render(); save(); }
+
+/* ---------- local cache (IndexedDB) ---------- */
+const DB = { name:'mapamental2', store:'kv' };
+function db(){ return new Promise((res,rej)=>{ const q = indexedDB.open(DB.name,1);
+  q.onupgradeneeded = e => e.target.result.createObjectStore(DB.store);
+  q.onsuccess = e => res(e.target.result); q.onerror = () => rej(q.error); }); }
+async function dbPut(k,v){ const d = await db(); return new Promise((res,rej)=>{ const t=d.transaction(DB.store,'readwrite'); t.objectStore(DB.store).put(v,k); t.oncomplete=res; t.onerror=()=>rej(t.error); }); }
+async function dbGet(k){ const d = await db(); return new Promise((res,rej)=>{ const t=d.transaction(DB.store,'readonly'); const r=t.objectStore(DB.store).get(k); r.onsuccess=()=>res(r.result); r.onerror=()=>rej(r.error); }); }
+async function dbDel(k){ const d = await db(); return new Promise((res,rej)=>{ const t=d.transaction(DB.store,'readwrite'); t.objectStore(DB.store).delete(k); t.oncomplete=res; t.onerror=()=>rej(t.error); }); }
+
+/* ---------- Google auth ---------- */
+let token = null, tokenExp = 0, tokenClient = null;
+function setStatus(txt, err=false, reconnect=false){ const s=$('#status'); s.className = err?'err':''; s.innerHTML = esc(txt) + (reconnect?' <button id="btnReconnect">Reconectar</button>':'');
+  const b=$('#btnReconnect'); if(b) b.addEventListener('click', ()=> requestToken(true)); }
+function loadToken(){ try{ const t=JSON.parse(localStorage.getItem('gtoken')||'null'); if(t && t.exp>Date.now()+60000){ token=t.token; tokenExp=t.exp; return true; } }catch(e){} return false; }
+function gisReady(){ return new Promise(res => { const i=setInterval(()=>{ if(window.google && google.accounts && google.accounts.oauth2){ clearInterval(i); res(); } },100); setTimeout(()=>{ clearInterval(i); res(); }, 8000); }); }
+async function initAuth(){ await gisReady(); if(!window.google || !google.accounts) return false;
+  tokenClient = google.accounts.oauth2.initTokenClient({ client_id: CLIENT_ID, scope: SCOPE, callback: () => {} }); return true; }
+function requestToken(interactive){ return new Promise((res,rej)=>{ if(!tokenClient) return rej(new Error('Login do Google não carregou. Verifique a conexão e recarregue.'));
+  tokenClient.callback = r => { if(r.error){ rej(new Error(r.error_description||r.error)); return; } token=r.access_token; tokenExp=Date.now()+(r.expires_in-60)*1000;
+    localStorage.setItem('gtoken', JSON.stringify({token, exp:tokenExp})); flushPending(); res(token); };
+  tokenClient.error_callback = e => rej(new Error(e.message||e.type||'login cancelado'));
+  tokenClient.requestAccessToken({ prompt: interactive?'consent':'' }); }); }
+function logout(){ if(token && window.google) try{ google.accounts.oauth2.revoke(token, ()=>{}); }catch(e){} token=null; localStorage.removeItem('gtoken'); showView('login'); }
+// refresh silently inside a user gesture when close to expiry
+document.addEventListener('pointerdown', () => { if(token && tokenExp-Date.now() < 5*60000 && !refreshing){ refreshing=true; requestToken(false).catch(()=>{}).finally(()=>refreshing=false); } }, true);
+let refreshing=false;
+
+/* ---------- Drive API ---------- */
+class AuthError extends Error {}
+async function api(path, opt={}, raw=false){ if(!token) throw new AuthError('sem login');
+  const r = await fetch((path.startsWith('http')?path:'https://www.googleapis.com/drive/v3/'+path), {...opt, headers:{...(opt.headers||{}), Authorization:'Bearer '+token}});
+  if(r.status===401){ token=null; localStorage.removeItem('gtoken'); throw new AuthError('sessão expirou'); }
+  if(!r.ok){ let m=r.statusText; try{ m=(await r.json()).error.message; }catch(e){} throw new Error(m); }
+  return raw ? r : (r.status===204 ? null : r.json()); }
+const q = s => encodeURIComponent(s);
+let folderId = null, attFolderId = null;
+async function ensureFolder(name, parent){ const r = await api(`files?q=${q(`name='${name.replace(/'/g,"\\'")}' and mimeType='application/vnd.google-apps.folder' and '${parent}' in parents and trashed=false`)}&fields=files(id)`);
+  if(r.files.length) return r.files[0].id;
+  const c = await api('files?fields=id', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({name, mimeType:'application/vnd.google-apps.folder', parents:[parent]})}); return c.id; }
+async function ensureFolders(){ if(!folderId){ folderId = localStorage.getItem('folderId') || await ensureFolder(FOLDER_NAME,'root'); localStorage.setItem('folderId', folderId); }
+  if(!attFolderId){ attFolderId = localStorage.getItem('attFolderId') || await ensureFolder('Anexos', folderId); localStorage.setItem('attFolderId', attFolderId); } }
+async function driveList(){ await ensureFolders();
+  try{ const r = await api(`files?q=${q(`'${folderId}' in parents and trashed=false and appProperties has { key='mapa' and value='1' }`)}&fields=files(id,name,modifiedTime)&orderBy=modifiedTime desc&pageSize=200`); return r.files; }
+  catch(e){ if(e instanceof AuthError) throw e; // folder id may be stale (deleted) -> rebuild
+    localStorage.removeItem('folderId'); localStorage.removeItem('attFolderId'); folderId=attFolderId=null; await ensureFolders();
+    const r = await api(`files?q=${q(`'${folderId}' in parents and trashed=false and appProperties has { key='mapa' and value='1' }`)}&fields=files(id,name,modifiedTime)&orderBy=modifiedTime desc&pageSize=200`); return r.files; } }
+function cleanMap(m){ const c=JSON.parse(JSON.stringify(m)); for(const id in c.nodes){ const n=c.nodes[id]; delete n.x; delete n.y; delete n.w; delete n.h; delete n._sh; } return c; }
+async function driveCreate(m){ await ensureFolders(); const meta={name:m.title, parents:[folderId], mimeType:'application/json', appProperties:{mapa:'1'}};
+  const fd=new FormData(); fd.append('metadata', new Blob([JSON.stringify(meta)],{type:'application/json'})); fd.append('file', new Blob([JSON.stringify(cleanMap(m))],{type:'application/json'}));
+  const r = await api('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,modifiedTime', {method:'POST', body:fd}); return r; }
+async function driveUpdate(m){ const r = await api(`https://www.googleapis.com/upload/drive/v3/files/${m.driveId}?uploadType=media&fields=id,modifiedTime`, {method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify(cleanMap(m))}); return r; }
+async function driveRename(id, name){ return api(`files/${id}?fields=id`, {method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({name})}); }
+async function driveTrash(id){ return api(`files/${id}?fields=id`, {method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({trashed:true})}); }
+async function driveRead(id){ const r = await api(`files/${id}?alt=media`, {}, true); return r.json(); }
+async function driveUploadAttachment(file, onProgress){ await ensureFolders();
+  const meta={name:file.name, parents:[attFolderId]};
+  const init = await api('https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&fields=id', {method:'POST', headers:{'Content-Type':'application/json','X-Upload-Content-Type':file.type||'application/octet-stream','X-Upload-Content-Length':String(file.size)}, body: JSON.stringify(meta)}, true);
+  const url = init.headers.get('Location'); if(!url) throw new Error('Drive não aceitou o envio');
+  const r = await fetch(url, {method:'PUT', headers:{'Content-Type':file.type||'application/octet-stream', Authorization:'Bearer '+token}, body:file});
+  if(!r.ok) throw new Error('falha no envio ('+r.status+')'); const j = await r.json();
+  const info = await api(`files/${j.id}?fields=id,name,mimeType,size,webViewLink`);
+  return {kind:'drive', fileId:info.id, name:info.name, type:info.mimeType, size:+info.size||file.size, url:info.webViewLink}; }
+function dataURLtoFile(a){ const [h,b]=a.data.split(','); const bin=atob(b); const u8=new Uint8Array(bin.length); for(let i=0;i<bin.length;i++) u8[i]=bin.charCodeAt(i); return new File([u8], a.name, {type:a.type||'application/octet-stream'}); }
+
+/* ---------- save pipeline ---------- */
+let saveTimer=null, saving=false, dirty=false;
+function save(){ if(!map) return; dirty=true; clearTimeout(saveTimer); setStatus('…'); saveTimer=setTimeout(flushPending, 900); }
+async function flushPending(){ if(!map || !dirty || saving) return; saving=true; const m=map;
+  try{ m.view=view; await dbPut('map:'+m.id, cleanMap(m)); await dbPut('dirty:'+m.id, true);
+    if(!navigator.onLine) throw new Error('offline');
+    let r; if(m.driveId) r = await driveUpdate(m); else { r = await driveCreate(m); m.driveId=r.id; await dbPut('map:'+m.id, cleanMap(m)); }
+    dirty=false; await dbDel('dirty:'+m.id); await touchIndex(m, r.modifiedTime); if(map===m) setStatus('salvo no Drive'); }
+  catch(e){ if(e instanceof AuthError){ setStatus('sessão do Google expirou', true, true); }
+    else if(e.message==='offline' || e.name==='TypeError'){ setStatus('sem conexão — salvo aqui, envio depois', true); }
+    else setStatus('não salvo: '+e.message, true); }
+  finally{ saving=false; if(dirty && map===m && navigator.onLine && token) saveTimer=setTimeout(flushPending, 5000); } }
+window.addEventListener('online', ()=>{ if(dirty) flushPending(); });
+setInterval(()=>{ if(dirty && !saving && navigator.onLine && token) flushPending(); }, 30000);
+async function touchIndex(m, modified){ const idx = (await dbGet('index'))||[]; const i=idx.findIndex(x=>x.id===m.id);
+  const row={id:m.id, driveId:m.driveId, name:m.title, modifiedTime:modified||new Date().toISOString()}; if(i>=0) idx[i]=row; else idx.unshift(row); await dbPut('index', idx); }
+
+/* ---------- layout ---------- */
+function measure(){ // node sizes from DOM
+  for(const el of nodesEl.children){ const n = N(el.dataset.id); if(!n) continue; n.w = el.offsetWidth; n.h = el.offsetHeight; }
+}
+function subH(n){ if(n.collapsed || !n.children.length) return n._sh = n.h + V_GAP;
+  let s = 0; for(const c of kids(n)) s += subH(c); return n._sh = Math.max(n.h + V_GAP, s); }
+function place(n, x, y, side){ n.x = x + n.dx; n.y = y + n.dy; if(n.collapsed) return;
+  const ch = kids(n); if(!ch.length) return;
+  let cur = n.y - ch.reduce((a,c)=>a+c._sh,0)/2;
+  for(const c of ch){ const cy = cur + c._sh/2; const cx = side==='R' ? n.x + n.w/2 + H_GAP + c.w/2 : n.x - n.w/2 - H_GAP - c.w/2; place(c, cx, cy, side); cur += c._sh; }
+}
+function layout(){
+  const r = N(map.root); const ch = kids(r);
+  const R = ch.filter(c => (c.side||'R')==='R'), L = ch.filter(c => c.side==='L');
+  for(const c of ch) subH(c);
+  r.x = r.dx; r.y = r.dy;
+  const put = (arr, side) => { let cur = r.y - arr.reduce((a,c)=>a+c._sh,0)/2;
+    for(const c of arr){ const cy = cur + c._sh/2; const cx = side==='R' ? r.x + r.w/2 + H_GAP + c.w/2 : r.x - r.w/2 - H_GAP - c.w/2; place(c,cx,cy,side); cur += c._sh; } };
+  put(R,'R'); put(L,'L');
+}
+function visible(n, acc=[]){ acc.push(n); if(!n.collapsed) for(const c of kids(n)) visible(c, acc); return acc; }
+
+/* ---------- render ---------- */
+function esc(s){ return s.replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+function render(){
+  const vis = visible(N(map.root));
+  const keep = new Set(vis.map(n=>n.id));
+  for(const el of [...nodesEl.children]) if(!keep.has(el.dataset.id) || el.classList.contains('tog')) el.remove();
+  for(const n of vis){
+    let el = nodesEl.querySelector(`.node[data-id="${n.id}"]`);
+    if(!el){ el = document.createElement('div'); el.className='node'; el.dataset.id=n.id; nodesEl.appendChild(el); }
+    if(editing !== n.id){
+      const hasAtt = n.att.length, hasNotes = n.notes.trim().length, cnt = n.collapsed ? countDesc(n) : 0;
+      el.innerHTML = (n.icon?`<span class="ic">${n.icon}</span>`:'') + `<span class="txt">${esc(n.text)||'&nbsp;'}</span>` +
+        (hasAtt||hasNotes||cnt?`<span class="meta">${hasNotes?'≡':''}${hasAtt?'📎'+hasAtt:''}${cnt?' +'+cnt:''}</span>`:'');
+    }
+    const col = colorOf(n), isRoot = n.id===map.root;
+    el.classList.toggle('root', isRoot); el.classList.toggle('sel', n.id===sel);
+    el.style.background = isRoot ? '#1F2421' : '#fff';
+    el.style.borderColor = n.id===sel ? '' : (isRoot ? '#1F2421' : col);
+    if(n.id!==sel) el.style.borderColor = isRoot ? '#1F2421' : col;
+    el.style.color = isRoot ? '#fff' : 'var(--ink)';
+    if(!isRoot) el.style.borderLeftWidth = '5px';
+  }
+  measure(); layout();
+  linksSvg.innerHTML = '';
+  for(const n of vis){
+    const el = nodesEl.querySelector(`.node[data-id="${n.id}"]`);
+    el.style.left = n.x+'px'; el.style.top = n.y+'px';
+    if(n.parent && keep.has(n.parent)){
+      const p = N(n.parent), s = sideOf(n); const x1 = s==='R'? p.x+p.w/2 : p.x-p.w/2, y1 = p.y, x2 = s==='R'? n.x-n.w/2 : n.x+n.w/2, y2 = n.y;
+      const mx = (x1+x2)/2;
+      const path = document.createElementNS('http://www.w3.org/2000/svg','path');
+      path.setAttribute('d', `M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}`); path.setAttribute('stroke', colorOf(n)); linksSvg.appendChild(path);
+    }
+    if(n.children.length && n.id!==map.root){
+      const t = document.createElement('button'); t.className='tog'; t.dataset.tid = n.id; t.textContent = n.collapsed ? '+' : '–';
+      t.title = n.collapsed ? 'Expandir' : 'Recolher';
+      const s = sideOf(n); t.style.left = (s==='R'? n.x+n.w/2+12 : n.x-n.w/2-12)+'px'; t.style.top = n.y+'px'; nodesEl.appendChild(t);
+    }
+  }
+  updateActions(); if($('#panel').classList.contains('open')) fillPanel();
+}
+function countDesc(n){ let c=0; for(const k of kids(n)) c += 1 + countDesc(k); return c; }
+function applyView(){ world.style.transform = `translate(${view.x}px,${view.y}px) scale(${view.k})`; }
+function updateActions(){ const has = !!sel, isRoot = sel===map.root; const n = has && N(sel);
+  for(const b of document.querySelectorAll('#actions button')){ const a=b.dataset.act;
+    b.disabled = !has || (a==='sibling'&&isRoot) || (a==='delete'&&isRoot) || (a==='toggle' && !(n&&n.children.length)); }
+  $('#btnUndo').disabled = !undoStack.length; }
+
+/* ---------- node ops ---------- */
+function select(id){ sel = id; render(); }
+function addChild(pid, text='Novo tópico'){ snapshot(); const p = N(pid); const n = newNode(text, pid); p.collapsed=false;
+  if(pid===map.root){ const ch=kids(p); const hr = ch.filter(c=>(c.side||'R')==='R').reduce((a,c)=>a+(c._sh||40),0), hl = ch.filter(c=>c.side==='L').reduce((a,c)=>a+(c._sh||40),0); n.side = hr<=hl?'R':'L'; }
+  map.nodes[n.id]=n; p.children.push(n.id); sel=n.id; render(); save(); startEdit(n.id, true); }
+function addSibling(id){ const n=N(id); if(!n.parent) return; snapshot(); const p=N(n.parent); const s=newNode('Novo tópico', p.id); s.side=n.side;
+  map.nodes[s.id]=s; p.children.splice(p.children.indexOf(id)+1,0,s.id); sel=s.id; render(); save(); startEdit(s.id,true); }
+function removeNode(id){ const n=N(id); if(!n||!n.parent) return; snapshot(); const p=N(n.parent); p.children=p.children.filter(c=>c!==id);
+  (function del(x){ for(const c of x.children) if(N(c)) del(N(c)); delete map.nodes[x.id]; })(n); sel=p.id; closePanel(); render(); save(); }
+function toggle(id){ const n=N(id); if(!n.children.length) return; snapshot(); n.collapsed=!n.collapsed; render(); save(); }
+function reparent(id, newP){ if(id===map.root || isDesc(id,newP)) return; snapshot(); const n=N(id); const op=N(n.parent); op.children=op.children.filter(c=>c!==id);
+  n.parent=newP; N(newP).children.push(id); N(newP).collapsed=false; n.dx=n.dy=0; n.side = newP===map.root ? (n.side||'R') : null; render(); save(); }
+function setAll(collapsed){ snapshot(); for(const id in map.nodes){ const n=N(id); if(n.children.length && id!==map.root) n.collapsed=collapsed; } render(); save(); }
+
+/* ---------- editing ---------- */
+function startEdit(id, selectAll=false){ if(editing) commitEdit(); const n=N(id); if(!n) return; editing=id;
+  const el = nodesEl.querySelector(`.node[data-id="${id}"]`); if(!el) return;
+  el.innerHTML = (n.icon?`<span class="ic">${n.icon}</span>`:'') + `<textarea rows="1"></textarea>`;
+  const ta = el.querySelector('textarea'); ta.value = n.text; const fit = () => { ta.style.height='auto'; ta.style.height=ta.scrollHeight+'px'; el.style.minWidth='120px'; render0(); };
+  ta.addEventListener('input', fit); ta.addEventListener('keydown', e => { if(e.key==='Enter'&&!e.shiftKey){ e.preventDefault(); commitEdit(); } if(e.key==='Escape'){ ta.value=n.text; commitEdit(); } e.stopPropagation(); });
+  ta.addEventListener('blur', () => commitEdit()); ta.addEventListener('pointerdown', e=>e.stopPropagation());
+  fit(); ta.focus(); if(selectAll) ta.select(); }
+function render0(){ measure(); layout(); for(const el of nodesEl.querySelectorAll('.node')){ const n=N(el.dataset.id); if(n){ el.style.left=n.x+'px'; el.style.top=n.y+'px'; } } }
+function commitEdit(){ if(!editing) return; const id=editing; const el=nodesEl.querySelector(`.node[data-id="${id}"]`); const ta=el&&el.querySelector('textarea');
+  const n=N(id); editing=null; if(ta && n && ta.value.trim()!==n.text){ snapshot(); n.text=ta.value.trim()||'…'; if(id===map.root && map.title==='Novo mapa' && n.text){ map.title=n.text.slice(0,80); $('#title').value=map.title; if(map.driveId) driveRename(map.driveId, map.title).catch(()=>{}); } save(); } if(el) el.style.minWidth=''; render(); }
+
+/* ---------- pointer handling (pan, zoom, drag) ---------- */
+const ptrs = new Map(); let gesture = null; // {type:'pan'|'drag'|'pinch', ...}
+function toWorld(cx,cy){ const r=stage.getBoundingClientRect(); return {x:(cx-r.left-view.x)/view.k, y:(cy-r.top-view.y)/view.k}; }
+stage.addEventListener('pointerdown', e => {
+  if(e.target.closest('.tog')) return;
+  ptrs.set(e.pointerId,{x:e.clientX,y:e.clientY}); stage.setPointerCapture(e.pointerId);
+  if(ptrs.size===2){ const [a,b]=[...ptrs.values()]; gesture={type:'pinch', d0:Math.hypot(a.x-b.x,a.y-b.y), k0:view.k, c0:{x:(a.x+b.x)/2,y:(a.y+b.y)/2}, v0:{...view}}; return; }
+  const nodeEl = e.target.closest('.node');
+  if(nodeEl){ if(editing===nodeEl.dataset.id) return; gesture={type:'drag', id:nodeEl.dataset.id, sx:e.clientX, sy:e.clientY, moved:false, el:nodeEl, t:Date.now()}; }
+  else { if(editing) commitEdit(); gesture={type:'pan', sx:e.clientX, sy:e.clientY, v0:{...view}, moved:false}; stage.classList.add('panning'); }
+});
+stage.addEventListener('pointermove', e => {
+  if(!ptrs.has(e.pointerId)) return; ptrs.set(e.pointerId,{x:e.clientX,y:e.clientY}); if(!gesture) return;
+  if(gesture.type==='pinch' && ptrs.size===2){ const [a,b]=[...ptrs.values()]; const d=Math.hypot(a.x-b.x,a.y-b.y); const c={x:(a.x+b.x)/2,y:(a.y+b.y)/2};
+    const k = Math.min(3, Math.max(.2, gesture.k0*d/gesture.d0)); const r=stage.getBoundingClientRect();
+    const wx=(gesture.c0.x-r.left-gesture.v0.x)/gesture.k0, wy=(gesture.c0.y-r.top-gesture.v0.y)/gesture.k0;
+    view={k, x:c.x-r.left-wx*k, y:c.y-r.top-wy*k}; applyView(); return; }
+  if(gesture.type==='pan'){ const dx=e.clientX-gesture.sx, dy=e.clientY-gesture.sy; if(Math.hypot(dx,dy)>3) gesture.moved=true;
+    view.x=gesture.v0.x+dx; view.y=gesture.v0.y+dy; applyView(); return; }
+  if(gesture.type==='drag'){ const dx=e.clientX-gesture.sx, dy=e.clientY-gesture.sy;
+    if(!gesture.moved && Math.hypot(dx,dy)>6){ gesture.moved=true; if(gesture.id===map.root) { /* root moves whole map = pan */ } gesture.el.classList.add('dragging'); gesture.n=N(gesture.id); gesture.dx0=gesture.n.dx; gesture.dy0=gesture.n.dy; }
+    if(gesture.moved){ const n=gesture.n; n.dx=gesture.dx0+dx/view.k; n.dy=gesture.dy0+dy/view.k; render0(); linksSvg.style.opacity='.35';
+      // drop target
+      gesture.el.style.pointerEvents='none'; const under=document.elementFromPoint(e.clientX,e.clientY); gesture.el.style.pointerEvents='';
+      const t = under && under.closest && under.closest('.node'); nodesEl.querySelectorAll('.drop').forEach(x=>x.classList.remove('drop'));
+      gesture.target=null; if(t && t.dataset.id!==gesture.id && !isDesc(gesture.id,t.dataset.id) && gesture.id!==map.root){ t.classList.add('drop'); gesture.target=t.dataset.id; }
+    } }
+});
+function endPtr(e){
+  ptrs.delete(e.pointerId); const g=gesture; if(!g) return;
+  if(g.type==='pinch'){ if(ptrs.size<2){ gesture=null; save(); } return; }
+  gesture=null; stage.classList.remove('panning'); linksSvg.style.opacity='';
+  if(g.type==='pan'){ if(!g.moved){ if(sel){ sel=null; closePanel(); render(); } } else save(); return; }
+  if(g.type==='drag'){ nodesEl.querySelectorAll('.drop').forEach(x=>x.classList.remove('drop')); g.el.classList.remove('dragging');
+    if(!g.moved){ // click / tap
+      if(sel===g.id && Date.now()-(g.el._lastTap||0)<350){ startEdit(g.id); } else { g.el._lastTap=Date.now(); select(g.id); }
+      return; }
+    if(g.target){ const n=N(g.id); n.dx=g.dx0; n.dy=g.dy0; reparent(g.id,g.target); }
+    else { const n=N(g.id); if(g.id===map.root){ n.dx=g.dx0; n.dy=g.dy0; view.x+= (e.clientX-g.sx); view.y+=(e.clientY-g.sy); applyView(); render0(); }
+      else if(n.parent===map.root){ // crossed sides?
+        const r=N(map.root); const side = n.x < r.x ? 'L':'R'; if(side!==(n.side||'R')){ n.dx=g.dx0; n.dy=g.dy0; n.side=side; }
+        const tmp={dx:n.dx,dy:n.dy}; n.dx=g.dx0; n.dy=g.dy0; snapshot(); n.dx=tmp.dx; n.dy=tmp.dy; }
+      else { const tmp={dx:n.dx,dy:n.dy}; n.dx=g.dx0; n.dy=g.dy0; snapshot(); n.dx=tmp.dx; n.dy=tmp.dy; }
+      render(); save(); } }
+}
+stage.addEventListener('pointerup', endPtr); stage.addEventListener('pointercancel', endPtr);
+stage.addEventListener('dblclick', e => { const el=e.target.closest('.node'); if(el && editing!==el.dataset.id) startEdit(el.dataset.id); });
+stage.addEventListener('click', e => { const t=e.target.closest('.tog'); if(t) toggle(t.dataset.tid); });
+stage.addEventListener('wheel', e => { e.preventDefault(); const r=stage.getBoundingClientRect();
+  if(e.ctrlKey || !e.deltaX && Math.abs(e.deltaY)>0 && !e.shiftKey && e.deltaMode===0 && Math.abs(e.deltaY)<100 && e.ctrlKey){ }
+  const zoom = e.ctrlKey || e.metaKey || Math.abs(e.deltaY)>=100 || e.deltaMode!==0;
+  if(zoom){ const k=Math.min(3,Math.max(.2, view.k*Math.exp(-e.deltaY*0.0015))); zoomAt(k, e.clientX-r.left, e.clientY-r.top); }
+  else { view.x-=e.deltaX; view.y-=e.deltaY; applyView(); } save(); }, {passive:false});
+function zoomAt(k, px, py){ const wx=(px-view.x)/view.k, wy=(py-view.y)/view.k; view={k, x:px-wx*k, y:py-wy*k}; applyView(); }
+function fit(){ const vis=visible(N(map.root)); if(!vis.length) return; const r=stage.getBoundingClientRect();
+  const minX=Math.min(...vis.map(n=>n.x-n.w/2)), maxX=Math.max(...vis.map(n=>n.x+n.w/2)), minY=Math.min(...vis.map(n=>n.y-n.h/2)), maxY=Math.max(...vis.map(n=>n.y+n.h/2));
+  const pad=60; const k=Math.min(1.5, (r.width-pad*2)/(maxX-minX), (r.height-pad*2-120)/(maxY-minY));
+  view={k, x:(r.width-(maxX+minX)*k)/2, y:(r.height-(maxY+minY)*k)/2 + 20}; applyView(); save(); }
+
+/* ---------- keyboard ---------- */
+document.addEventListener('keydown', e => {
+  if(editing || e.target.matches('input,textarea')) { if(e.key==='Escape' && e.target.id==='title') e.target.blur(); return; }
+  if((e.ctrlKey||e.metaKey) && e.key.toLowerCase()==='z'){ e.preventDefault(); e.shiftKey?redo():undo(); return; }
+  if((e.ctrlKey||e.metaKey) && e.key.toLowerCase()==='s'){ e.preventDefault(); exportJSON(); return; }
+  if(!sel) return;
+  if(e.key==='Tab'){ e.preventDefault(); addChild(sel); }
+  else if(e.key==='Enter'){ e.preventDefault(); sel===map.root ? addChild(sel) : addSibling(sel); }
+  else if(e.key==='Delete'||e.key==='Backspace'){ e.preventDefault(); removeNode(sel); }
+  else if(e.key==='F2'||e.key===' '){ e.preventDefault(); startEdit(sel); }
+  else if(e.key==='Escape'){ sel=null; closePanel(); render(); }
+  else if(e.key==='ArrowUp'||e.key==='ArrowDown'){ e.preventDefault(); const n=N(sel); if(!n.parent) return; const sib=N(n.parent).children; const i=sib.indexOf(sel)+(e.key==='ArrowUp'?-1:1); if(sib[i]) select(sib[i]); }
+  else if(e.key==='ArrowLeft'||e.key==='ArrowRight'){ e.preventDefault(); const n=N(sel); const s=sideOf(n); const inward=(e.key==='ArrowLeft')===(s==='R');
+    if(inward){ if(n.parent) select(n.parent); } else if(n.children.length && !n.collapsed) select(n.children[0]); }
+  else if(e.key.length===1 && !e.ctrlKey && !e.metaKey && !e.altKey){ startEdit(sel, true); }
+});
+
+/* ---------- toolbar ---------- */
+document.querySelectorAll('#actions button,#zoom button').forEach(b => b.addEventListener('click', () => {
+  const a=b.dataset.act; const r=stage.getBoundingClientRect();
+  if(a==='zoomIn') return zoomAt(Math.min(3,view.k*1.2), r.width/2, r.height/2), save();
+  if(a==='zoomOut') return zoomAt(Math.max(.2,view.k/1.2), r.width/2, r.height/2), save();
+  if(!sel) return;
+  ({child:()=>addChild(sel), sibling:()=>addSibling(sel), edit:()=>startEdit(sel), toggle:()=>toggle(sel), details:()=>openPanel(), delete:()=>removeNode(sel)})[a]();
+}));
+$('#btnUndo').addEventListener('click', undo); $('#btnFit').addEventListener('click', fit);
+$('#btnMenu').addEventListener('click', e => { e.stopPropagation(); $('#menu').classList.toggle('open'); });
+document.addEventListener('pointerdown', e => { if(!e.target.closest('#menu,#btnMenu')) $('#menu').classList.remove('open'); });
+$('#menu').addEventListener('click', e => { const b=e.target.closest('button'); if(!b) return; $('#menu').classList.remove('open');
+  const a=b.dataset.act;
+  if(a==='rename'){ $('#title').focus(); $('#title').select(); }
+  if(a==='export') exportJSON();
+  if(a==='logout') logout();
+  if(a==='png') exportPNG();
+  if(a==='expandAll') setAll(false);
+  if(a==='collapseAll') setAll(true);
+  if(a==='resetPos'){ snapshot(); for(const id in map.nodes){ N(id).dx=0; N(id).dy=0; } render(); fit(); save(); }
+  if(a==='help') alert('Atalhos (PC):\nTab – novo filho\nEnter – novo irmão\nDelete – apagar\nF2 ou espaço – editar\nSetas – navegar\nCtrl+Z – desfazer\nCtrl+S – baixar cópia\nRoda do mouse – rolar; Ctrl+roda – zoom\n\nCelular:\nToque – selecionar; toque de novo – editar\nArrastar nó – reposicionar; soltar sobre outro nó – mover o ramo\nPinça – zoom; arrastar o fundo – mover\n\nOs mapas salvam sozinhos na pasta "Mapas mentais" do seu Google Drive e aparecem em qualquer aparelho onde você entrar com a mesma conta.');
+});
+$('#title').addEventListener('change', async e => { map.title=e.target.value.trim()||'Mapa'; e.target.value=map.title; save(); if(map.driveId){ try{ await driveRename(map.driveId, map.title); }catch(err){} } });
+$('#title').addEventListener('keydown', e => { if(e.key==='Enter') e.target.blur(); });
+
+/* ---------- panel ---------- */
+function openPanel(){ if(!sel) return; $('#panel').classList.add('open'); fillPanel(); }
+function closePanel(){ $('#panel').classList.remove('open'); $('#linkform').style.display='none'; }
+$('#pClose').addEventListener('click', closePanel);
+function fillPanel(){ const n=N(sel); if(!n){ closePanel(); return; } $('#pTitle').textContent=n.text;
+  const sw=$('#swatches'); sw.innerHTML=''; const none=document.createElement('button'); none.className='sw none'+(n.color?'':' on'); none.title='Herdar cor'; none.addEventListener('click',()=>{ snapshot(); n.color=null; render(); save(); }); sw.appendChild(none);
+  for(const c of COLORS){ const b=document.createElement('button'); b.className='sw'+(n.color===c?' on':''); b.style.background=c; b.addEventListener('click',()=>{ snapshot(); n.color=c; render(); save(); }); sw.appendChild(b); }
+  const ic=$('#icons'); ic.innerHTML=''; const x=document.createElement('button'); x.textContent='∅'; x.title='Sem ícone'; x.className=n.icon?'':'on'; x.addEventListener('click',()=>{ snapshot(); n.icon=null; render(); save(); }); ic.appendChild(x);
+  for(const i of ICONS){ const b=document.createElement('button'); b.textContent=i; b.className=n.icon===i?'on':''; b.addEventListener('click',()=>{ snapshot(); n.icon=i; render(); save(); }); ic.appendChild(b); }
+  if(document.activeElement!==$('#notes')) $('#notes').value=n.notes;
+  const al=$('#attList'); al.innerHTML='';
+  if(!n.att.length) al.innerHTML='<div style="font-size:13px;color:var(--ink-2);margin-bottom:8px">Nenhum anexo. Arquivos vão para a pasta Anexos no seu Drive; links abrem direto.</div>';
+  n.att.forEach((a,i)=>{ const d=document.createElement('div'); d.className='att';
+    if(a.kind==='link'){ d.innerHTML=`<span class="kind">🔗</span><a class="nm" href="${esc(a.url)}" target="_blank" rel="noopener">${esc(a.name||a.url)}</a>`; }
+    else if(a.kind==='drive'){ const ic=(a.type||'').startsWith('image/')?'🖼️':(a.type||'').includes('pdf')?'📕':(a.type||'').startsWith('video/')?'🎬':'📄';
+      d.innerHTML=`<span class="kind">${ic}</span><a class="nm" href="${esc(a.url)}" target="_blank" rel="noopener">${esc(a.name)}</a><span class="sz">${fmtSize(a.size)}</span>`; }
+    else { const isImg=(a.type||'').startsWith('image/');
+      d.innerHTML=(isImg?`<img src="${a.data}" alt="">`:'<span>📄</span>')+`<span class="nm">${esc(a.name)}</span><span class="sz">${fmtSize(a.size)}</span><a href="${a.data}" download="${esc(a.name)}" title="Baixar">⬇</a>`;
+      if(isImg) d.querySelector('img').addEventListener('click',()=>{ $('#viewerImg').src=a.data; $('#viewer').classList.add('open'); }); }
+    const rm=document.createElement('button'); rm.className='rm'; rm.textContent='✕'; rm.title='Remover anexo'; rm.addEventListener('click',()=>{ snapshot(); n.att.splice(i,1); render(); save(); }); d.appendChild(rm); al.appendChild(d); });
+}
+function fmtSize(b){ return b>1e6?(b/1e6).toFixed(1)+' MB':b>1e3?Math.round(b/1e3)+' KB':(b||0)+' B'; }
+let notesTimer; $('#notes').addEventListener('input', e => { const n=N(sel); if(!n) return; n.notes=e.target.value; clearTimeout(notesTimer); notesTimer=setTimeout(()=>{ render(); save(); },400); });
+$('#btnAttFile').addEventListener('click', () => $('#fileAtt').click());
+$('#fileAtt').addEventListener('change', async e => { const n=N(sel); if(!n) return; const files=[...e.target.files]; e.target.value='';
+  for(const f of files){ toast('Enviando '+f.name+'…'); try{ const a = await driveUploadAttachment(f); snapshot(); n.att.push(a); render(); save(); toast('Anexado: '+f.name); }
+    catch(err){ toast('Falha ao anexar '+f.name+': '+err.message); if(err instanceof AuthError) setStatus('sessão do Google expirou', true, true); } } });
+$('#btnAttLink').addEventListener('click', () => { $('#linkform').style.display='flex'; $('#linkUrl').focus(); });
+$('#linkOk').addEventListener('click', () => { const u=$('#linkUrl').value.trim(); if(!u) return; const n=N(sel); snapshot();
+  n.att.push({kind:'link', url:/^https?:\/\//i.test(u)?u:'https://'+u, name:u.replace(/^https?:\/\//i,'').slice(0,60)}); $('#linkUrl').value=''; $('#linkform').style.display='none'; render(); save(); });
+$('#linkUrl').addEventListener('keydown', e => { if(e.key==='Enter') $('#linkOk').click(); });
+$('#pDelete').addEventListener('click', () => { if(sel!==map.root && confirm('Apagar este nó e tudo abaixo dele?')) removeNode(sel); });
+$('#viewer').addEventListener('click', () => $('#viewer').classList.remove('open'));
+
+/* ---------- export / import ---------- */
+function download(name, blob){ const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=name; document.body.appendChild(a); a.click(); setTimeout(()=>{ URL.revokeObjectURL(a.href); a.remove(); },1000); }
+const slug = s => s.normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^\w]+/g,'-').replace(/^-|-$/g,'').toLowerCase()||'mapa';
+function exportJSON(){ const clean=cleanMap(map); delete clean.driveId; download(slug(map.title)+'.json', new Blob([JSON.stringify(clean)],{type:'application/json'})); toast('Cópia baixada'); }
+$('#fileImport').addEventListener('change', e => { const f=e.target.files[0]; if(!f) return; const r=new FileReader();
+  r.onload=async()=>{ try{ const m=JSON.parse(r.result); if(!m.nodes||!m.root||!m.nodes[m.root]) throw new Error('formato inválido');
+      for(const id in m.nodes){ const n=m.nodes[id]; n.att=n.att||[]; n.children=n.children||[]; n.notes=n.notes||''; n.dx=n.dx||0; n.dy=n.dy||0; }
+      m.id=uid(); delete m.driveId; m.title=m.title||'Mapa importado';
+      // migrate embedded files to Drive
+      let pend=0; for(const id in m.nodes) for(const a of m.nodes[id].att) if(a.kind==='file') pend++;
+      if(pend){ toast('Enviando '+pend+' anexo(s) para o Drive…'); for(const id in m.nodes){ const n=m.nodes[id];
+        for(let i=0;i<n.att.length;i++){ const a=n.att[i]; if(a.kind==='file'){ try{ n.att[i]=await driveUploadAttachment(dataURLtoFile(a)); }catch(err){ toast('Anexo '+a.name+' não subiu: '+err.message); } } } } }
+      await openMap(m); toast('Mapa importado'); }
+    catch(err){ toast('Não deu pra importar: '+err.message); } }; r.readAsText(f); e.target.value=''; });
+$('#btnImportHome').addEventListener('click', () => $('#fileImport').click());
+$('#btnLogoutHome').addEventListener('click', logout);
+
+function exportPNG(){ const vis=visible(N(map.root)); const pad=50, S=2;
+  const minX=Math.min(...vis.map(n=>n.x-n.w/2))-pad, maxX=Math.max(...vis.map(n=>n.x+n.w/2))+pad, minY=Math.min(...vis.map(n=>n.y-n.h/2))-pad, maxY=Math.max(...vis.map(n=>n.y+n.h/2))+pad;
+  const c=document.createElement('canvas'); c.width=(maxX-minX)*S; c.height=(maxY-minY)*S; const g=c.getContext('2d'); g.scale(S,S); g.translate(-minX,-minY);
+  g.fillStyle='#FBFAF7'; g.fillRect(minX,minY,maxX-minX,maxY-minY);
+  g.lineWidth=2.4; g.lineCap='round';
+  for(const n of vis){ if(!n.parent) continue; const p=N(n.parent); const s=sideOf(n); const x1=s==='R'?p.x+p.w/2:p.x-p.w/2, x2=s==='R'?n.x-n.w/2:n.x+n.w/2, mx=(x1+x2)/2;
+    g.strokeStyle=colorOf(n); g.beginPath(); g.moveTo(x1,p.y); g.bezierCurveTo(mx,p.y,mx,n.y,x2,n.y); g.stroke(); }
+  const rr=(x,y,w,h,r)=>{ g.beginPath(); g.moveTo(x+r,y); g.arcTo(x+w,y,x+w,y+h,r); g.arcTo(x+w,y+h,x,y+h,r); g.arcTo(x,y+h,x,y,r); g.arcTo(x,y,x+w,y,r); g.closePath(); };
+  for(const n of vis){ const isRoot=n.id===map.root; const x=n.x-n.w/2, y=n.y-n.h/2;
+    g.shadowColor='rgba(0,0,0,.12)'; g.shadowBlur=4; g.shadowOffsetY=1; g.fillStyle=isRoot?'#1F2421':'#fff'; rr(x,y,n.w,n.h,isRoot?16:12); g.fill(); g.shadowColor='transparent';
+    g.strokeStyle=isRoot?'#1F2421':colorOf(n); g.lineWidth=2; g.stroke();
+    if(!isRoot){ g.save(); g.clip(); g.fillStyle=colorOf(n); g.fillRect(x,y,5,n.h); g.restore(); }
+    g.fillStyle=isRoot?'#fff':'#1F2421'; g.font=(isRoot?'600 18px':'15px')+' -apple-system,"Segoe UI",Roboto,sans-serif'; g.textBaseline='middle';
+    const text=(n.icon?n.icon+' ':'')+n.text + (n.collapsed?'  +'+countDesc(n):'') + (n.att.length?'  📎'+n.att.length:'');
+    const px=isRoot?20:(n.icon?16:18); const lines=wrap(g,text,n.w-px-14); const lh=isRoot?23:19.5; let ty=n.y-(lines.length-1)*lh/2;
+    for(const l of lines){ g.fillText(l,x+px,ty); ty+=lh; } }
+  c.toBlob(b=>{ download(slug(map.title)+'.png', b); toast('Imagem exportada'); },'image/png'); }
+function wrap(g,text,w){ const out=[]; for(const para of text.split('\n')){ let line=''; for(const word of para.split(' ')){ const t=line?line+' '+word:word; if(g.measureText(t).width>w && line){ out.push(line); line=word; } else line=t; } out.push(line); } return out; }
+
+/* ---------- misc ---------- */
+let toastT; function toast(m){ const t=$('#toast'); t.textContent=m; t.classList.add('show'); clearTimeout(toastT); toastT=setTimeout(()=>t.classList.remove('show'),2200); }
+window.addEventListener('resize', () => applyView());
+
+/* ---------- views ---------- */
+function showView(v){ document.body.className='v-'+v; }
+$('#btnBack').addEventListener('click', async () => { if(editing) commitEdit(); closePanel(); if(dirty) await flushPending(); showView('home'); renderHome(); });
+$('#btnNewMap').addEventListener('click', async () => { const m=newMap('Novo mapa'); await openMap(m, true); });
+function fmtDate(iso){ const d=new Date(iso); return d.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'})+' '+d.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}); }
+async function renderHome(){ const list=$('#mapList'); let idx=(await dbGet('index'))||[];
+  const paint = rows => { list.innerHTML=''; if(!rows.length){ list.innerHTML='<div class="empty">Nenhum mapa ainda. Crie o primeiro ou importe um .json.</div>'; return; }
+    for(const r of rows){ const d=document.createElement('div'); d.className='maprow'; d.innerHTML=`<span>🗺️</span><span class="nm">${esc(r.name)}</span><span class="dt">${fmtDate(r.modifiedTime)}</span><button class="more" title="Opções">⋯</button>`;
+      d.addEventListener('click', e => { if(e.target.closest('.more')) return; openFromIndex(r); });
+      d.querySelector('.more').addEventListener('click', async e => { e.stopPropagation(); const c=prompt('Digite "renomear" ou "apagar" para este mapa:'); if(!c) return;
+        if(/^r/i.test(c)){ const n=prompt('Novo nome:', r.name); if(n&&n.trim()){ try{ await driveRename(r.driveId, n.trim()); }catch(err){ toast('Não renomeou: '+err.message); return; } const m=await dbGet('map:'+r.id); if(m){ m.title=n.trim(); await dbPut('map:'+r.id, m); } r.name=n.trim(); await dbPut('index', rows); renderHome(); } }
+        else if(/^a/i.test(c)){ if(confirm('Apagar "'+r.name+'"? Ele vai para a lixeira do Drive.')){ try{ if(r.driveId) await driveTrash(r.driveId); }catch(err){ toast('Não apagou: '+err.message); return; } await dbDel('map:'+r.id); await dbPut('index', rows.filter(x=>x.id!==r.id)); renderHome(); } } });
+      list.appendChild(d); } };
+  paint(idx);
+  if(!token || !navigator.onLine){ setStatus(navigator.onLine?'':'sem conexão — lista local', !navigator.onLine); return; }
+  try{ setStatus('sincronizando…'); const files=await driveList(); const byDrive=new Map(idx.map(r=>[r.driveId,r]));
+    const rows=[]; for(const f of files){ const loc=byDrive.get(f.id); rows.push({id: loc?loc.id:'d_'+f.id, driveId:f.id, name:f.name, modifiedTime:f.modifiedTime, remote:true}); }
+    // keep local-only maps not yet uploaded
+    for(const r of idx) if(!r.driveId || (await dbGet('dirty:'+r.id))) { if(!rows.find(x=>x.id===r.id)) rows.unshift(r); }
+    rows.sort((a,b)=> (b.modifiedTime||'').localeCompare(a.modifiedTime||'')); await dbPut('index', rows); paint(rows); setStatus(''); }
+  catch(e){ if(e instanceof AuthError) setStatus('sessão do Google expirou', true, true); else setStatus('Drive indisponível: '+e.message, true); } }
+async function openFromIndex(r){ let m = await dbGet('map:'+r.id); const isDirty = await dbGet('dirty:'+r.id);
+  if(r.driveId && token && navigator.onLine && !isDirty){ try{ toast('Abrindo…'); const remote=await driveRead(r.driveId); remote.driveId=r.driveId; if(!remote.id) remote.id=r.id; if(remote.id!==r.id){ await dbDel('map:'+r.id); } m=remote; }
+    catch(e){ if(e instanceof AuthError) setStatus('sessão do Google expirou', true, true); if(!m){ toast('Não consegui abrir do Drive: '+e.message); return; } } }
+  if(!m){ toast('Sem conexão e sem cópia local deste mapa'); return; }
+  m.driveId = m.driveId || r.driveId; await openMap(m, false); }
+async function openMap(m, isNew=false){ for(const id in m.nodes){ const n=m.nodes[id]; n.att=n.att||[]; n.notes=n.notes||''; n.dx=n.dx||0; n.dy=n.dy||0; n.children=n.children||[]; }
+  map=m; sel=map.root; undoStack=[]; redoStack=[]; dirty=false; closePanel(); $('#title').value=map.title; showView('editor'); render();
+  if(map.view && !isNew){ view=map.view; applyView(); } else fit();
+  if(isNew){ save(); startEdit(map.root, true); } else { await dbPut('map:'+m.id, cleanMap(m)); await touchIndex(m); setStatus(map.driveId?'salvo no Drive':''); }
+  if(await dbGet('dirty:'+m.id)){ dirty=true; flushPending(); } }
+
+/* ---------- boot ---------- */
+$('#btnLogin').addEventListener('click', async () => { $('#loginErr').textContent=''; try{ await requestToken(true); showView('home'); renderHome(); }catch(e){ $('#loginErr').textContent=e.message; } });
+(async () => {
+  showView('login'); const ok = await initAuth();
+  if(!ok){ $('#loginErr').textContent='Não consegui carregar o login do Google. Verifique a conexão e recarregue.'; }
+  if(loadToken()){ showView('home'); renderHome(); }
+  else if(await dbGet('index')){ // offline / expired: allow browsing local copies
+    $('#loginErr').innerHTML = '<button class="btn" id="btnOffline">Continuar sem login (só cópias locais)</button>';
+    $('#btnOffline').addEventListener('click', ()=>{ showView('home'); renderHome(); }); }
+})();
+})();
+</script>
+</body>
+</html>
