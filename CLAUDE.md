@@ -27,7 +27,7 @@ node = { id, text, parent, children: [ids], color, icon, notes, att: [], collaps
 - `side` (`'R'` ou `'L'`) só vale para os filhos diretos da raiz.
 - `x`, `y`, `w`, `h` e `_sh` são calculados e saem na serialização (`ser()` e `cleanMap()`).
 - Os anexos podem ser `kind: 'link'`, `'drive'` ou `'file'`. O tipo `'file'` é legado (base64) e é migrado para o Drive na importação.
-- Na IndexedDB `mapamental2` ficam as chaves `index`, `map:<id>`, `dirty:<id>`, `view:<id>` e `mod:<id>`.
+- Na IndexedDB `mapamental2` ficam as chaves `index`, `map:<id>`, `dirty:<id>`, `view:<id>`, `mod:<id>` e `base:<id>` (a última versão que o aparelho sabe que está no Drive).
 
 ## Regras
 
@@ -36,7 +36,8 @@ node = { id, text, parent, children: [ids], color, icon, notes, att: [], collaps
 - **Visão:** mover a tela e dar zoom não chamam `save()`. Eles usam `saveView()`, que grava só neste aparelho, na chave `view:<id>`.
 - **Seleção e render:** selecionar um nó não chama `render()`; use `select()` ou `markSel()`. `render()` só refaz o HTML de um nó quando a assinatura dele (`el._sig`) muda.
 - **Arrastar:** arrastar reorganiza a estrutura com `moveNode`. A posição livre (`dx`/`dy`) só acontece com Alt ou Shift.
-- **Sincronização:** `checkRemote()` recarrega o mapa quando outro aparelho o alterou. Não remova essa função.
+- **Sincronização:** com o mapa na tela, `checkRemote()` confere o Drive a cada 5s e recarrega quando outro aparelho o alterou. Não remova essa função. `flush()` nunca envia por cima de uma versão do Drive que o aparelho não viu: nesse caso, `conflict()` junta as duas com `merge3(base, daqui, Drive)`, tópico por tópico. Se o mesmo texto mudou nos dois, fica o daqui e o outro vai para as notas. Nada pode se perder numa junção.
+- **Versão:** ao publicar uma mudança visível, atualize o texto `.ver` no fim do menu, que serve para conferir se o aparelho carregou a versão nova.
 - **Fluxo de alteração:** toda alteração no mapa segue a ordem `snapshot()`, depois a mutação, depois `render()` e por fim `save()`.
 
 ## Funcionalidades
