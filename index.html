@@ -56,6 +56,7 @@ body:not(.v-editor) .in-editor,body:not(.v-home) .in-home,body:not(.v-login) .in
 .menu button:hover{background:var(--hover)}
 .menu button.danger{color:var(--danger)}
 .menu kbd{font:12px var(--font);color:var(--ink-2)}
+.menu .ver{font-size:11px;opacity:.55;padding:6px 11px 3px}
 .menu hr{border:0;border-top:1px solid var(--line);margin:5px 0;width:100%}
 #menu{top:calc(60px + env(safe-area-inset-top));right:12px}
 
@@ -246,6 +247,7 @@ body:not(.v-editor) .in-editor,body:not(.v-home) .in-home,body:not(.v-login) .in
   <button data-act="help">Atalhos e ajuda</button>
   <hr>
   <button data-act="logout">Sair da conta Google</button>
+  <div class="ver">Versão 11/11 · sincroniza a cada 5s</div>
 </div>
 <div class="menu" id="pop"></div>
 
@@ -387,7 +389,7 @@ document.addEventListener('pointerdown', () => { if(token && tokenExp-Date.now()
 /* ---------- Drive API ---------- */
 class AuthError extends Error {}
 async function api(path, opt={}, raw=false){ if(!token) throw new AuthError('sem login');
-  const r = await fetch((path.startsWith('http')?path:'https://www.googleapis.com/drive/v3/'+path), {...opt, headers:{...(opt.headers||{}), Authorization:'Bearer '+token}});
+  const r = await fetch((path.startsWith('http')?path:'https://www.googleapis.com/drive/v3/'+path), {cache:'no-store', ...opt, headers:{...(opt.headers||{}), Authorization:'Bearer '+token}});
   if(r.status===401){ token=null; localStorage.removeItem('gtoken'); throw new AuthError('sessão expirou'); }
   if(!r.ok){ let m=r.statusText; try{ m=(await r.json()).error.message; }catch(e){} throw new Error(m||('erro '+r.status)); }
   return raw ? r : (r.status===204 ? null : r.json()); }
