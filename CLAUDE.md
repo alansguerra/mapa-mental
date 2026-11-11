@@ -1,46 +1,58 @@
 # Mapa mental
 
-Editor de mapas mentais que roda no navegador, com os mapas salvos no Google Drive do usuário. Interface em pt-BR, funciona no PC e no celular (toque, pinça para zoom).
+Editor de mapas mentais que roda no navegador, com os mapas salvos no Google Drive do usuário. Interface em pt-BR, funciona no PC e no celular, com tema claro e escuro.
 
-## Organização
+## Arquivos
 
-O projeto é um único arquivo, [index.html](index.html), sem build e sem dependências de npm. Ele tem três partes:
+- [index.html](index.html): o app. É um arquivo único, sem build e sem npm.
+- [antigo.html](antigo.html): a versão anterior, guardada como reserva. **Não editar.**
 
-- `<style>`: CSS com tokens em `:root` (cores, sombras) e media queries para telas com menos de 700px.
-- Markup: barra superior (`#top`), menu (`#menu`), telas de login (`#login`) e da lista de mapas (`#home`), canvas (`#stage` > `#world` com `#links` em SVG e `#nodes` em divs), barra de ações (`#actions`), zoom e painel lateral de detalhes (`#panel`).
-- `<script>`: uma IIFE em JS puro, dividida por comentários `/* ---------- seção ---------- */`: state, undo, IndexedDB, Google auth, Drive API, save pipeline, layout, render, node ops, editing, pointer, keyboard, toolbar, panel, export/import, views e boot.
+Dependências externas: Google Identity Services (`accounts.google.com/gsi/client`) e a fonte Schibsted Grotesk (Google Fonts).
 
-Dependências externas: Google Identity Services (`accounts.google.com/gsi/client`) e a fonte Figtree (Google Fonts).
+## Organização do index.html
 
-As telas são trocadas pela classe do `body`: `v-login`, `v-home` ou `v-editor` (função `showView`).
+- `<style>`: tokens em `:root` e em `html[data-theme=dark]`.
+- Markup: barra superior, busca (`#find`), menus (`#menu`, `#pop`), telas `#login` e `#home`, canvas (`#stage` > `#world` com `#links` em SVG, `#nodes` e `#dropline`), barra de ações, zoom, painel `#panel` e diálogo `#dlg`.
+- `<script>`: uma IIFE em JS puro, dividida por comentários `/* ---------- seção ---------- */`.
+
+A tela ativa é a classe do `body` (`v-login`, `v-home` ou `v-editor`, via `showView`). Os elementos aparecem conforme as classes `in-login`, `in-home` e `in-editor`.
 
 ## Modelo de dados
 
 ```js
-map = { id, title, root, nodes: { [id]: node }, view: {x,y,k}, driveId }
+map  = { id, title, root, nodes: { [id]: node }, view, driveId }
 node = { id, text, parent, children: [ids], color, icon, notes, att: [], collapsed, dx, dy, side }
 ```
 
-- `side` (`'R'` ou `'L'`) só vale para os filhos diretos da raiz; os outros nós herdam o lado do ramo.
-- `dx`/`dy` guardam o deslocamento manual em relação ao layout automático.
-- `x`, `y`, `w`, `h` e `_sh` são calculados a cada render e retirados por `cleanMap()` antes de salvar.
-- Os anexos (`att`) podem ser `kind: 'link'`, `'drive'` ou `'file'`. O tipo `'file'` é legado, com o arquivo embutido em base64, e é migrado para o Drive na importação.
+- `side` (`'R'` ou `'L'`) só vale para os filhos diretos da raiz.
+- `x`, `y`, `w`, `h` e `_sh` são calculados e saem na serialização (`ser()` e `cleanMap()`).
+- Os anexos podem ser `kind: 'link'`, `'drive'` ou `'file'`. O tipo `'file'` é legado (base64) e é migrado para o Drive na importação.
+- Na IndexedDB `mapamental2` ficam as chaves `index`, `map:<id>`, `dirty:<id>`, `view:<id>` e `mod:<id>`.
 
-## Principais funcionalidades
+## Regras
 
-- **Login com Google** (OAuth por token, escopo `drive.file`). O token fica no `localStorage` e é renovado sem interação perto de expirar.
-- **Persistência**: cada mapa é um arquivo JSON na pasta "Mapas mentais" do Drive, marcado com `appProperties.mapa=1`. Os anexos vão para a subpasta "Anexos". O salvamento é automático, com debounce de 900ms.
-- **Offline**: uma cópia local fica no IndexedDB (`mapamental2`, chaves `index`, `map:<id>` e `dirty:<id>`). As alterações pendentes são enviadas quando a conexão volta.
-- **Edição**: adicionar filho ou irmão, editar o texto, apagar, recolher ou expandir ramos, e arrastar um nó sobre outro para mover o ramo. Desfazer e refazer guardam até 60 snapshots em JSON.
-- **Layout automático** em árvore horizontal com ramos para os dois lados da raiz, links em curvas bézier e cores por ramo de primeiro nível.
-- **Painel de detalhes**: cor, ícone (emoji), notas e anexos (arquivo no Drive ou link).
-- **Navegação**: pan, zoom com roda, Ctrl+roda ou pinça, e enquadrar (`fit`).
-- **Exportação**: cópia em JSON (Ctrl+S), imagem PNG desenhada em canvas e importação de JSON.
-- **Atalhos**: Tab (filho), Enter (irmão), Delete, F2 ou espaço (editar), setas (navegar) e Ctrl+Z ou Ctrl+Shift+Z.
+- **Compatibilidade:** o formato do mapa no Drive tem que continuar compatível com o `antigo.html`. Não renomeie nem remova campos de `map` e `node`.
+- **Salvamento:** `rev` sobe a cada alteração, e `savedRev` é a última revisão que chegou ao Drive. Nunca marque como salvo sem comparar os dois. A cópia local é gravada em 250ms e o Drive em 1,5s.
+- **Visão:** mover a tela e dar zoom não chamam `save()`. Eles usam `saveView()`, que grava só neste aparelho, na chave `view:<id>`.
+- **Seleção e render:** selecionar um nó não chama `render()`; use `select()` ou `markSel()`. `render()` só refaz o HTML de um nó quando a assinatura dele (`el._sig`) muda.
+- **Arrastar:** arrastar reorganiza a estrutura com `moveNode`. A posição livre (`dx`/`dy`) só acontece com Alt.
+- **Sincronização:** `checkRemote()` recarrega o mapa quando outro aparelho o alterou. Não remova essa função.
+- **Fluxo de alteração:** toda alteração no mapa segue a ordem `snapshot()`, depois a mutação, depois `render()` e por fim `save()`.
+
+## Funcionalidades
+
+- Login com Google (escopo `drive.file`). Os mapas ficam na pasta "Mapas mentais" e os anexos na subpasta "Anexos".
+- Modo offline com cópia local. As alterações pendentes sobem quando a conexão volta.
+- Criar, editar, apagar, duplicar, recolher e reordenar tópicos.
+- Copiar, recortar e colar ramos. Um texto colado de fora vira tópicos, um por linha, com a hierarquia pela indentação.
+- Busca em textos e notas (Ctrl+F).
+- Painel de detalhes com cor, ícone, notas e anexos.
+- Exportação em JSON, PNG e TXT, e importação de JSON.
+- Na tela inicial: buscar, renomear, duplicar e apagar mapas.
 
 ## Convenções
 
 - O código é compacto, com funções de uma linha e muitas declarações por linha. Siga esse estilo.
-- `$` é um atalho para `document.querySelector`, e `N(id)` devolve o nó do mapa.
-- Toda alteração no mapa segue a ordem `snapshot()`, depois a mutação, depois `render()` e por fim `save()`.
+- `$` e `$$` são atalhos de `querySelector` e `querySelectorAll`, e `N(id)` devolve o nó do mapa.
+- Use `dialog()` em vez de `alert`, `confirm` e `prompt`.
 - Os textos da interface são em português.
