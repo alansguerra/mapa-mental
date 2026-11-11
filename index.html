@@ -408,7 +408,9 @@ async function driveCreate(m, body){ await ensureFolders(); const meta={name:m.t
   const fd=new FormData(); fd.append('metadata', new Blob([JSON.stringify(meta)],{type:'application/json'})); fd.append('file', new Blob([body],{type:'application/json'}));
   return api('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,modifiedTime', {method:'POST', body:fd}); }
 const driveUpdate = (id, body) => api(`https://www.googleapis.com/upload/drive/v3/files/${id}?uploadType=media&fields=id,modifiedTime`, {method:'PATCH', headers:JSONH, body});
-const driveRename = (id, name) => api(`files/${id}?fields=id`, {method:'PATCH', headers:JSONH, body: JSON.stringify({name})});
+async function driveRename(id, name){ const before = await driveInfo(id), known = map && map.driveId===id ? remoteMod : null;
+  const r = await api(`files/${id}?fields=id,modifiedTime`, {method:'PATCH', headers:JSONH, body: JSON.stringify({name})});
+  if(known && map && map.driveId===id && Date.parse(before.modifiedTime) <= Date.parse(known)+1500) await setMod(map.id, r.modifiedTime); return r; }
 const driveTrash = id => api(`files/${id}?fields=id`, {method:'PATCH', headers:JSONH, body: JSON.stringify({trashed:true})});
 const driveInfo = id => api(`files/${id}?fields=modifiedTime,trashed`);
 async function driveRead(id){ const r = await api(`files/${id}?alt=media`, {}, true); return r.json(); }
@@ -430,19 +432,24 @@ async function saveLocal(){ clearTimeout(localT); localT=null; if(!map) return; 
   try{ await dbPut('map:'+m.id, cleanMap(m)); if(rev!==savedRev) await dbPut('dirty:'+m.id, true); }catch(e){} }
 function saveView(){ updateZoomLabel(); if(!map) return; clearTimeout(viewT); viewT=setTimeout(()=>{ if(map) dbPut('view:'+map.id, {...view}).catch(()=>{}); }, 400); }
 async function setMod(id, t){ remoteMod=t; try{ await dbPut('mod:'+id, t); }catch(e){} }
+// base: a última versão que este aparelho sabe que está no Drive; é o ponto de partida para juntar alterações
+async function setBase(id, m){ try{ await dbPut('base:'+id, m); }catch(e){} }
 async function flush(){ clearTimeout(driveT); driveT=null; if(!map || rev===savedRev) return; if(saving){ driveT=setTimeout(flush, 700); return; }
-  saving=true; const m=map, id=m.id; let authFail=false;
+  saving=true; const m=map, id=m.id; let authFail=false, clash=null;
   try{ await saveLocal(); if(!navigator.onLine) throw new Error('offline');
     const cur = () => map && map.id===id ? map : m;
+    // nunca envia por cima de uma versão do Drive que este aparelho ainda não viu
+    if(cur().driveId && map && map.id===id){ const f=await driveInfo(cur().driveId); if(!remoteMod || Date.parse(f.modifiedTime) > Date.parse(remoteMod)+1500){ clash=f; throw new Error('clash'); } }
     const r0=rev, body=ser(cur()); let r;
     if(cur().driveId) r = await driveUpdate(cur().driveId, body); else { r = await driveCreate(cur(), body); m.driveId=r.id; cur().driveId=r.id; }
-    await touchIndex(cur(), r.modifiedTime);
+    await touchIndex(cur(), r.modifiedTime); await setBase(id, JSON.parse(body));
     if(map && map.id===id){ await setMod(id, r.modifiedTime);
       if(rev===r0){ savedRev=r0; await dbPut('map:'+id, cleanMap(map)); await dbDel('dirty:'+id); setStatus('ok','Salvo no Drive'); } } }
   catch(e){ if(e instanceof AuthError){ authFail=true; authStatus(); }
+    else if(clash) setStatus('warn','Este mapa mudou em outro aparelho');
     else if(e.message==='offline' || e.name==='TypeError') setStatus('warn','Sem conexão: salvo neste aparelho');
     else setStatus('err','Não salvou no Drive: '+e.message); }
-  finally{ saving=false; if(map && map.id===id && rev!==savedRev && !authFail && !driveT) driveT=setTimeout(flush, navigator.onLine ? 4000 : 15000); } }
+  finally{ saving=false; if(clash) setTimeout(() => conflict(clash), 0); else if(map && map.id===id && rev!==savedRev && !authFail && !driveT) driveT=setTimeout(flush, navigator.onLine ? 4000 : 15000); } }
 async function flushAll(){ for(let i=0; i<3 && map && rev!==savedRev; i++){ while(saving) await sleep(120); await flush(); if(!navigator.onLine || !token) break; } }
 async function touchIndex(m, modified){ const idx = (await dbGet('index'))||[]; const i=idx.findIndex(x=>x.id===m.id);
   const row={id:m.id, driveId:m.driveId, name:m.title, modifiedTime: modified || (i>=0 && idx[i].modifiedTime) || new Date().toISOString()}; if(i>=0) idx[i]=row; else idx.unshift(row); await dbPut('index', idx); }
@@ -452,20 +459,69 @@ window.addEventListener('pagehide', () => { if(map && inEditor()) saveLocal(); }
 window.addEventListener('focus', () => checkRemote());
 // outro aparelho alterou este mapa? Se aqui não há nada pendente, recarrega; se há, pergunta.
 async function checkRemote(force){ if(!map || !map.driveId || !token || !navigator.onLine || !inEditor() || saving || dlgOpen) return;
-  if(!force && Date.now()-lastCheck < 15000) return; lastCheck=Date.now(); const id=map.id;
+  if(!force && Date.now()-lastCheck < 4000) return; lastCheck=Date.now(); const id=map.id;
   try{ const f = await driveInfo(map.driveId); if(!map || map.id!==id || saving) return;
-    if(!remoteMod){ await setMod(id, f.modifiedTime); return; }
-    if(Date.parse(f.modifiedTime) <= Date.parse(remoteMod)+1500) return;
-    if(rev===savedRev && !editing){ await reloadRemote(); toast('Mapa atualizado com o que foi alterado em outro aparelho'); return; }
-    const ok = await dialog({title:'Este mapa mudou em outro aparelho', text:'Existem alterações aqui que ainda não foram para o Drive, e o mapa também foi alterado em outro aparelho depois da última vez que você o abriu aqui. Qual versão fica?', ok:'Ficar com a do outro aparelho', cancel:'Ficar com a daqui'});
-    if(!map || map.id!==id) return;
-    if(ok) await reloadRemote(); else { await setMod(id, f.modifiedTime); if(rev!==savedRev) flush(); } }
+    if(remoteMod && Date.parse(f.modifiedTime) <= Date.parse(remoteMod)+1500) return;
+    if(rev!==savedRev) return conflict(f);
+    if(editing) return; const known=!!remoteMod; await reloadRemote(); if(known) toast('Mapa atualizado com o que foi alterado em outro aparelho'); }
   catch(e){ if(e instanceof AuthError) authStatus(); } }
+// com o mapa na tela, confere o Drive a cada 5s para mostrar logo o que mudou em outro aparelho
+setInterval(() => { if(!document.hidden) checkRemote(); }, 5000);
+// há alterações aqui e uma versão no Drive que este aparelho não conhece: junta as duas, tópico por tópico
+let clashing = false;
+const content = m => { const c=cleanMap(m); delete c.view; delete c.driveId; delete c.id; return JSON.stringify(c); };
+async function conflict(f){ if(clashing || !map || !map.driveId) return; clashing=true; const id=map.id;
+  try{ const remote = await driveRead(map.driveId); let base=null; try{ base = await dbGet('base:'+id); }catch(e){}
+    if(!map || map.id!==id) return;
+    if(!(remote && remote.nodes && remote.nodes[remote.root])){ await setMod(id, f.modifiedTime); flush(); return; }   // o arquivo do Drive não é um mapa: vale o daqui
+    normalize(remote);
+    if(content(remote)===content(map)){ const r0=rev; await setMod(id, f.modifiedTime); await setBase(id, cleanMap(remote)); if(rev===r0){ savedRev=rev; await dbDel('dirty:'+id); setStatus('ok','Salvo no Drive'); } else flush(); return; }
+    if(editing){ setStatus('warn','Este mapa mudou em outro aparelho'); return; }   // junta quando a edição do texto terminar
+    const res = merge3(base, cleanMap(map), cleanMap(remote)), cur = map;
+    map = normalize({...res, id, driveId:cur.driveId, view:cur.view}); delete map.clashes; undoStack=[]; redoStack=[];
+    if(!sel || !N(sel)) sel=map.root; $('#title').value=map.title; for(const el of els.values()) el._sig=null; render();
+    await setMod(id, f.modifiedTime); await setBase(id, cleanMap(remote));
+    const c = res.clashes;
+    toast(!c.length ? 'Juntei com o que foi alterado em outro aparelho'
+      : c.length===1 ? '"'+c[0]+'" foi mudado nos dois aparelhos. A versão do outro aparelho ficou nas notas do tópico.'
+      : c.length+' tópicos foram mudados nos dois aparelhos. As versões do outro aparelho ficaram nas notas.', c.length ? 9000 : 0);
+    save(); flush(); }
+  catch(e){ if(e instanceof AuthError) authStatus(); else setStatus('err','Não consegui comparar com o Drive: '+e.message); }
+  finally{ clashing=false; } }
+// junta B→L (este aparelho) e B→R (Drive). Se os dois mudaram a mesma coisa, fica a daqui; texto e notas do outro não se perdem
+const eq = (a,b) => JSON.stringify(a===undefined?null:a)===JSON.stringify(b===undefined?null:b);
+const FIELDS = ['text','color','icon','notes','collapsed','dx','dy','side','parent'];
+function mergeAtt(b,l,r){ const k=a=>JSON.stringify(a), bk=new Set((b||[]).map(k)), lk=new Set(l.map(k)), rk=new Set(r.map(k));
+  return [...l.filter(a => !bk.has(k(a)) || rk.has(k(a))), ...r.filter(a => !lk.has(k(a)) && !bk.has(k(a)))]; }
+function merge3(B, L, R){ const bn=(B&&B.nodes)||{}, ln=L.nodes, rn=R.nodes, out={}, clashes=[], root=L.root;
+  const pick = (b,l,r) => eq(l,b) ? r : l;   // só o Drive mudou: vale o Drive; senão, vale o daqui
+  const changed = (x,b) => FIELDS.some(f => !eq(x[f], b[f])) || !eq(x.att, b.att);
+  for(const id of new Set([...Object.keys(ln), ...Object.keys(rn)])){ const b=bn[id], l=ln[id], r=rn[id];
+    if(l && r){ const n={id, children:[]}; for(const f of FIELDS) n[f] = b ? pick(b[f], l[f], r[f]) : l[f];
+      n.att = mergeAtt(b && b.att, l.att||[], r.att||[]);
+      const ln_=l.notes||'', rn_=r.notes||'', bnt=b ? b.notes||'' : null;
+      if(ln_!==rn_ && ln_!==bnt && rn_!==bnt) n.notes = ln_.includes(rn_) ? ln_ : rn_.includes(ln_) ? rn_ : ln_+'\n\n— outro aparelho —\n'+rn_;
+      if(l.text!==r.text && (!b || (l.text!==b.text && r.text!==b.text))){ n.text=l.text; clashes.push(l.text);
+        n.notes = (n.notes ? n.notes+'\n\n' : '') + 'Em outro aparelho este tópico ficou: "'+r.text+'"'; }
+      out[id]=n; }
+    else { const x=l||r; if(!b || changed(x,b)) out[id]={...x, children:[]}; } }   // apagado de um lado: some, a não ser que o outro tenha mexido nele
+  // um tópico mantido precisa do pai: traz de volta o que foi apagado de um lado só
+  let again=true; while(again){ again=false; for(const id in out){ const p=out[id].parent; if(p==null || out[p]) continue;
+    const s=ln[p]||rn[p]||bn[p]; if(s){ out[p]={...s, children:[]}; again=true; } else out[id].parent=root; } }
+  out[root].parent=null;
+  for(const id in out){ const seen=new Set(); let p=out[id].parent; while(p!=null && !seen.has(p)){ seen.add(p); if(p===id){ out[id].parent=root; out[id].side=out[id].side||'R'; break; } p=out[p] ? out[p].parent : null; } }   // dois movimentos cruzados não podem formar um laço
+  // ordem dos filhos: a de quem mexeu; se os dois mexeram, a daqui e depois os novos do Drive
+  for(const id in out){ const bc=bn[id] ? bn[id].children : [], lc=ln[id] ? ln[id].children : [], rc=rn[id] ? rn[id].children : [];
+    const ord = eq(lc,bc) ? rc : eq(rc,bc) ? lc : [...lc, ...rc.filter(c => !lc.includes(c))], ch=out[id].children;
+    for(const c of ord) if(out[c] && out[c].parent===id && !ch.includes(c)) ch.push(c); }
+  for(const id in out){ const p=out[id].parent; if(p!=null && !out[p].children.includes(id)) out[p].children.push(id); }
+  return {title: pick(B ? B.title : L.title, L.title, R.title), root, nodes: out, clashes}; }
 async function reloadRemote(){ const id=map.id, did=map.driveId; const [remote, info] = await Promise.all([driveRead(did), driveInfo(did)]);
   if(!map || map.id!==id || !remote.nodes || !remote.nodes[remote.root]) return;
-  if(editing){ editing=null; } normalize(remote); remote.id=id; remote.driveId=did; map=remote; undoStack=[]; redoStack=[]; rev=savedRev=0; clearTimeout(driveT); driveT=null;
+  if(editing || rev!==savedRev) return conflict(info);   // mexeram aqui enquanto baixava: junta em vez de substituir
+  normalize(remote); remote.id=id; remote.driveId=did; map=remote; undoStack=[]; redoStack=[]; rev=savedRev=0; clearTimeout(driveT); driveT=null;
   if(!sel || !N(sel)) sel=map.root; $('#title').value=map.title; for(const el of els.values()) el._sig=null; render();
-  await setMod(id, info.modifiedTime); await dbPut('map:'+id, cleanMap(map)); await dbDel('dirty:'+id); await touchIndex(map, info.modifiedTime); setStatus('ok','Salvo no Drive'); }
+  await setMod(id, info.modifiedTime); await setBase(id, cleanMap(map)); await dbPut('map:'+id, cleanMap(map)); await dbDel('dirty:'+id); await touchIndex(map, info.modifiedTime); setStatus('ok','Salvo no Drive'); }
 
 /* ---------- layout ---------- */
 function subH(n){ if(n.collapsed || !n.children.length) return n._sh = n.h + V_GAP;
@@ -765,10 +821,10 @@ $('#btnThemeHome').addEventListener('click', toggleTheme);
 function dialog(o){ return new Promise(res => { const d=$('#dlg'), inp=d.querySelector('input'), tx=d.querySelector('.tx'), bt=d.querySelector('.bt'), hasIn=o.input!=null;
   d.querySelector('h2').textContent=o.title||''; if(o.html) tx.innerHTML=o.html; else tx.textContent=o.text||''; inp.style.display=hasIn?'':'none'; inp.value=o.input||''; bt.innerHTML='';
   const done = v => { d.classList.remove('open'); dlgOpen=false; document.removeEventListener('keydown', key, true); d.onpointerdown=null; res(v); };
-  const key = e => { e.stopPropagation(); if(e.key==='Escape'){ e.preventDefault(); done(null); } else if(e.key==='Enter'){ e.preventDefault(); done(hasIn ? inp.value : true); } };
-  if(o.cancel!==false){ const c=document.createElement('button'); c.className='btn'; c.textContent=o.cancel||'Cancelar'; c.onclick=()=>done(null); bt.appendChild(c); }
+  const key = e => { e.stopPropagation(); if(o.modal){ if(e.key==='Escape') e.preventDefault(); return; } if(e.key==='Escape'){ e.preventDefault(); done(null); } else if(e.key==='Enter'){ e.preventDefault(); done(hasIn ? inp.value : true); } };
+  if(o.cancel!==false){ const c=document.createElement('button'); c.className='btn'; c.textContent=o.cancel||'Cancelar'; c.onclick=()=>done(o.modal?false:null); bt.appendChild(c); }
   const k=document.createElement('button'); k.className='btn pri'+(o.danger?' danger':''); k.textContent=o.ok||'OK'; k.onclick=()=>done(hasIn ? inp.value : true); bt.appendChild(k);
-  d.onpointerdown = e => { if(e.target===d) done(null); };
+  d.onpointerdown = e => { if(e.target===d && !o.modal) done(null); };
   dlgOpen=true; d.classList.add('open'); document.addEventListener('keydown', key, true); if(hasIn){ inp.focus(); inp.select(); } else k.focus(); }); }
 
 /* ---------- busca ---------- */
@@ -863,7 +919,7 @@ function exportPNG(){ const vis=visNow, pad=60, F='"Schibsted Grotesk",-apple-sy
 function wrap(c, text, w){ const out=[]; for(const para of text.split('\n')){ let line=''; for(const word of para.split(' ')){ const t=line?line+' '+word:word; if(c.measureText(t).width>w && line){ out.push(line); line=word; } else line=t; } out.push(line); } return out; }
 
 /* ---------- avisos ---------- */
-let toastT; function toast(m){ const t=$('#toast'); t.textContent=m; t.classList.add('show'); clearTimeout(toastT); toastT=setTimeout(()=>t.classList.remove('show'), 2600); }
+let toastT; function toast(m, ms){ const t=$('#toast'); t.textContent=m; t.classList.add('show'); clearTimeout(toastT); toastT=setTimeout(()=>t.classList.remove('show'), ms||2600); }
 
 /* ---------- telas ---------- */
 function showView(v){ document.body.className='v-'+v; closeMenus(); }
@@ -886,7 +942,7 @@ async function renameMap(r){ const v=await dialog({title:'Renomear mapa', input:
   const m=await dbGet('map:'+r.id); if(m){ m.title=name; await dbPut('map:'+r.id, m); } if(map && map.id===r.id) map.title=name; r.name=name; await dbPut('index', homeRows); paintHome(); }
 async function deleteMap(r){ if(!await dialog({title:'Apagar "'+r.name+'"?', text:'O mapa vai para a lixeira do Google Drive, de onde dá para recuperar por 30 dias.', ok:'Apagar', danger:true})) return;
   try{ if(r.driveId) await driveTrash(r.driveId); }catch(err){ toast('Não apagou: '+err.message); return; }
-  await dbDel('map:'+r.id); await dbDel('dirty:'+r.id); await dbDel('view:'+r.id); await dbDel('mod:'+r.id); if(map && map.id===r.id){ map=null; clearTimeout(driveT); }
+  await dbDel('map:'+r.id); await dbDel('dirty:'+r.id); await dbDel('view:'+r.id); await dbDel('mod:'+r.id); await dbDel('base:'+r.id); if(map && map.id===r.id){ map=null; clearTimeout(driveT); }
   homeRows=homeRows.filter(x=>x.id!==r.id); await dbPut('index', homeRows); paintHome(); toast('Mapa apagado'); }
 async function duplicateMap(r){ const m=await loadFor(r); if(!m) return; const c=cleanMap(m); c.id=uid(); delete c.driveId; c.title=r.name+' (cópia)'; await openMap(c); toast('Cópia criada'); }
 async function renderHome(){ homeRows=(await dbGet('index'))||[]; paintHome();
@@ -910,7 +966,7 @@ async function openMap(m, mode, mod){ normalize(m); delete m._mod; if(editing) e
   closePanel(); closeFind(); clearEls(); $('#title').value=m.title; setStatus(''); showView('editor'); render();
   const lv = mode==='new' ? null : await dbGet('view:'+m.id);   // a posição da tela é de cada aparelho; sem ela, enquadra
   if(lv && isFinite(lv.k) && isFinite(lv.x) && isFinite(lv.y)){ view={x:+lv.x, y:+lv.y, k:clampK(+lv.k||1)}; applyView(); updateZoomLabel(); if(!anyOnScreen()) fit(false); } else fit(false);
-  remoteMod=null; if(mod) await setMod(m.id, mod); else remoteMod=(await dbGet('mod:'+m.id))||null;
+  remoteMod=null; if(mod){ await setMod(m.id, mod); await setBase(m.id, cleanMap(m)); } else remoteMod=(await dbGet('mod:'+m.id))||null;
   if(mode==='new'){ save(); startEdit(m.root, true); return; }
   await dbPut('map:'+m.id, cleanMap(m)); await touchIndex(m, mod);
   if(!m.driveId || await dbGet('dirty:'+m.id)){ rev++; setStatus('busy','Salvando…'); await dbPut('dirty:'+m.id, true); if(m.driveId) await checkRemote(true); if(map===m || (map && map.id===m.id)) flush(); }
