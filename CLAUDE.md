@@ -35,7 +35,7 @@ node = { id, text, parent, children: [ids], color, icon, notes, att: [], collaps
 - **Salvamento:** `rev` sobe a cada alteração, e `savedRev` é a última revisão que chegou ao Drive. Nunca marque como salvo sem comparar os dois. A cópia local é gravada em 250ms e o Drive em 1,5s.
 - **Visão:** mover a tela e dar zoom não chamam `save()`. Eles usam `saveView()`, que grava só neste aparelho, na chave `view:<id>`.
 - **Seleção e render:** selecionar um nó não chama `render()`; use `select()` ou `markSel()`. `render()` só refaz o HTML de um nó quando a assinatura dele (`el._sig`) muda.
-- **Arrastar:** arrastar reorganiza a estrutura com `moveNode`. A posição livre (`dx`/`dy`) só acontece com Alt.
+- **Arrastar:** arrastar reorganiza a estrutura com `moveNode`. A posição livre (`dx`/`dy`) só acontece com Alt ou Shift.
 - **Sincronização:** `checkRemote()` recarrega o mapa quando outro aparelho o alterou. Não remova essa função.
 - **Fluxo de alteração:** toda alteração no mapa segue a ordem `snapshot()`, depois a mutação, depois `render()` e por fim `save()`.
 
