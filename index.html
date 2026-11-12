@@ -247,7 +247,7 @@ body:not(.v-editor) .in-editor,body:not(.v-home) .in-home,body:not(.v-login) .in
   <button data-act="help">Atalhos e ajuda</button>
   <hr>
   <button data-act="logout">Sair da conta Google</button>
-  <div class="ver">Versão 11/11 · sincroniza a cada 5s</div>
+  <div class="ver">Versão 12/11 · renova o login sozinho</div>
 </div>
 <div class="menu" id="pop"></div>
 
@@ -367,8 +367,10 @@ async function dbDel(k){ const d = await db(); return new Promise((res,rej)=>{ c
 function setStatus(kind, txt, reconnect){ const s=$('#status'); s.className=kind||''; s.innerHTML = txt ? '<i></i><span>'+esc(txt)+'</span>'+(reconnect?'<button id="btnReconnect">Reconectar</button>':'') : '';
   const b=$('#btnReconnect'); if(b) b.addEventListener('click', reconnectNow); }
 const authStatus = () => setStatus('err', 'Sessão do Google expirou', true);
-function reconnectNow(){ requestToken(true).then(() => { if(!inEditor()){ if(document.body.classList.contains('v-home')) renderHome(); return; }
-  if(rev!==savedRev) flush(); else { setStatus('ok','Salvo no Drive'); checkRemote(true); } }).catch(e => toast('Não conectou: '+e.message)); }
+function reconnectNow(){ requestToken(true).then(reconnected).catch(e => toast('Não conectou: '+e.message)); }
+// voltou a ter login: envia o que ficou só neste aparelho e busca o que mudou no Drive
+function reconnected(){ if(!inEditor()){ if(document.body.classList.contains('v-home')) setTimeout(renderHome, 400); return; }   // espera o toque que pediu o login terminar, senão a lista some debaixo do dedo
+  if(rev!==savedRev) flush(); else { setStatus('ok','Salvo no Drive'); checkRemote(true); } }
 
 /* ---------- Google auth ---------- */
 let token = null, tokenExp = 0, tokenClient = null, refreshing = false;
@@ -383,8 +385,13 @@ function requestToken(){ return new Promise((res,rej)=>{ if(!tokenClient) return
   tokenClient.error_callback = e => rej(new Error(e.message||e.type||'login cancelado'));
   tokenClient.requestAccessToken({ prompt: '' }); }); }
 function logout(){ if(token && window.google) try{ google.accounts.oauth2.revoke(token, ()=>{}); }catch(e){} token=null; localStorage.removeItem('gtoken'); setStatus(''); showView('login'); }
-// renova em silêncio, dentro de um gesto do usuário, quando o token está perto de vencer
-document.addEventListener('pointerdown', () => { if(token && tokenExp-Date.now() < 5*60000 && !refreshing){ refreshing=true; requestToken().then(()=>{ if(rev!==savedRev) flush(); }).catch(()=>{}).finally(()=>refreshing=false); } }, true);
+// renova em silêncio, dentro de um gesto do usuário, quando o token está perto de vencer ou já venceu
+// (o login dura 1h: sem isto, quem abre o app no dia seguinte edita só neste aparelho até clicar em Reconectar)
+let autoTried = false;
+document.addEventListener('pointerdown', () => { if(refreshing || !tokenClient || document.body.classList.contains('v-login')) return;
+  if(token && tokenExp-Date.now() > 5*60000) return;
+  if(!token){ if(autoTried) return; autoTried=true; }   // sem login: tenta uma vez; se falhar, fica o botão Reconectar
+  refreshing=true; requestToken().then(()=>{ autoTried=false; reconnected(); }).catch(()=>{}).finally(()=>refreshing=false); }, true);
 
 /* ---------- Drive API ---------- */
 class AuthError extends Error {}
@@ -520,7 +527,7 @@ function merge3(B, L, R){ const bn=(B&&B.nodes)||{}, ln=L.nodes, rn=R.nodes, out
   return {title: pick(B ? B.title : L.title, L.title, R.title), root, nodes: out, clashes}; }
 async function reloadRemote(){ const id=map.id, did=map.driveId; const [remote, info] = await Promise.all([driveRead(did), driveInfo(did)]);
   if(!map || map.id!==id || !remote.nodes || !remote.nodes[remote.root]) return;
-  if(editing || rev!==savedRev) return conflict(info);   // mexeram aqui enquanto baixava: junta em vez de substituir
+  if(editing || notesTimer || rev!==savedRev) return conflict(info);   // mexeram aqui enquanto baixava (ou há nota digitada ainda não salva): junta em vez de substituir
   normalize(remote); remote.id=id; remote.driveId=did; map=remote; undoStack=[]; redoStack=[]; rev=savedRev=0; clearTimeout(driveT); driveT=null;
   if(!sel || !N(sel)) sel=map.root; $('#title').value=map.title; for(const el of els.values()) el._sig=null; render();
   await setMod(id, info.modifiedTime); await setBase(id, cleanMap(map)); await dbPut('map:'+id, cleanMap(map)); await dbDel('dirty:'+id); await touchIndex(map, info.modifiedTime); setStatus('ok','Salvo no Drive'); }
@@ -871,7 +878,7 @@ function fillPanel(){ const n=sel && N(sel); if(!n){ closePanel(); return; } $('
 const fmtSize = b => b>1e6 ? (b/1e6).toFixed(1)+' MB' : b>1e3 ? Math.round(b/1e3)+' KB' : (b||0)+' B';
 let notesTimer, notesSnap = false;
 $('#notes').addEventListener('focus', () => notesSnap=false);
-$('#notes').addEventListener('input', e => { const n=N(sel); if(!n) return; if(!notesSnap){ snapshot(); notesSnap=true; } n.notes=e.target.value; clearTimeout(notesTimer); notesTimer=setTimeout(() => { render(); save(); }, 400); });
+$('#notes').addEventListener('input', e => { const n=N(sel); if(!n) return; if(!notesSnap){ snapshot(); notesSnap=true; } n.notes=e.target.value; clearTimeout(notesTimer); notesTimer=setTimeout(() => { notesTimer=null; render(); save(); }, 400); });
 $('#btnAttFile').addEventListener('click', () => $('#fileAtt').click());
 $('#fileAtt').addEventListener('change', async e => { const id=sel, files=[...e.target.files]; e.target.value=''; if(!N(id)) return;
   for(const f of files){ toast('Enviando '+f.name+'…'); try{ const a = await driveUploadAttachment(f); if(!N(id)) return; snapshot(); N(id).att.push(a); render(); save(); toast('Anexado: '+f.name); }

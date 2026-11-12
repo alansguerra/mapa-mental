@@ -37,6 +37,7 @@ node = { id, text, parent, children: [ids], color, icon, notes, att: [], collaps
 - **Seleção e render:** selecionar um nó não chama `render()`; use `select()` ou `markSel()`. `render()` só refaz o HTML de um nó quando a assinatura dele (`el._sig`) muda.
 - **Arrastar:** arrastar reorganiza a estrutura com `moveNode`. A posição livre (`dx`/`dy`) só acontece com Alt ou Shift.
 - **Sincronização:** com o mapa na tela, `checkRemote()` confere o Drive a cada 5s e recarrega quando outro aparelho o alterou. Não remova essa função. `flush()` nunca envia por cima de uma versão do Drive que o aparelho não viu: nesse caso, `conflict()` junta as duas com `merge3(base, daqui, Drive)`, tópico por tópico. Se o mesmo texto mudou nos dois, fica o daqui e o outro vai para as notas. Nada pode se perder numa junção.
+- **Login:** o token do Google dura 1h. O `pointerdown` renova em silêncio quando ele está perto de vencer ou já venceu, e `reconnected()` envia o pendente e busca o Drive. Sem login o app não sincroniza nada, então não deixe o usuário editar por muito tempo sem perceber.
 - **Versão:** ao publicar uma mudança visível, atualize o texto `.ver` no fim do menu, que serve para conferir se o aparelho carregou a versão nova.
 - **Fluxo de alteração:** toda alteração no mapa segue a ordem `snapshot()`, depois a mutação, depois `render()` e por fim `save()`.
 
