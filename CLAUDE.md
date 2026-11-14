@@ -49,7 +49,7 @@ node = { id, text, parent, children: [ids], color, icon, notes, att: [], collaps
 - Copiar, recortar e colar ramos. Um texto colado de fora vira tópicos, um por linha, com a hierarquia pela indentação.
 - Busca em textos e notas (Ctrl+F).
 - Painel de detalhes com cor, ícone, notas e anexos.
-- Exportação em JSON, PNG e TXT, e importação de JSON.
+- Exportação em JSON, PNG e TXT, e importação de JSON e de FreeMind `.mm` (`fromMM`, usado para trazer mapas do MindMeister).
 - Na tela inicial: buscar, renomear, duplicar e apagar mapas.
 
 ## Convenções
