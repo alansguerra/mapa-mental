@@ -43,7 +43,8 @@ node = { id, text, parent, children: [ids], color, icon, notes, att: [], collaps
 
 ## Funcionalidades
 
-- Login com Google (escopo `drive.file`). Os mapas ficam na pasta "Mapas mentais" e os anexos na subpasta "Anexos".
+- Login com Google (escopo `drive.file`). Os mapas ficam na pasta "Mapas mentais", no drive compartilhado "Empresa" (01 - Gestão e Estratégia), e os anexos na subpasta "Anexos".
+- **Pasta no drive compartilhado (22/11/2026):** a pasta é aberta pelo ID fixo `FOLDER_ID_FIXO` (o ID não muda ao mover), nunca procurada pelo nome na raiz. Toda chamada ao Drive passa por `api()`, que acrescenta `supportsAllDrives=true` (e `includeItemsFromAllDrives=true&corpora=allDrives` nas listagens). Não remova isso: sem esses parâmetros o Drive não enxerga arquivos de drive compartilhado.
 - Modo offline com cópia local. As alterações pendentes sobem quando a conexão volta.
 - Criar, editar, apagar, duplicar, recolher e reordenar tópicos.
 - Copiar, recortar e colar ramos. Um texto colado de fora vira tópicos, um por linha, com a hierarquia pela indentação.
